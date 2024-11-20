@@ -103,7 +103,7 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
     cmd_error(stream, cmd, buf);
 });
 
-void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, bool(HX711_Mult::*hx_read)(uint8_t, uint32_t, float*, float*, uint32_t*, uint32_t), bool raw) {
+void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, HXReturnCodes(HX711_Mult::*hx_read)(uint8_t, uint32_t, float*, float*, uint32_t*, uint32_t), bool raw) {
     // hx | hx_raw <uint8_t:slot> <uint32_t:n_stat> <uint32_t:timeout_ms>
 
     if (args->N < 2)

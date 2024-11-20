@@ -6,6 +6,17 @@
 #include "debug_helper.h"
 
 
+static inline bool _is_hx_code_error(HXReturnCodes code)
+{
+    return code < 0;
+}
+
+static inline bool _is_hx_code_ok(HXReturnCodes code)
+{
+    return code == HXReturnCodes::OK;
+}
+
+
 HXReturnCodes HX711Calibration::to_json(JsonObject *obj)
 {
     if (!set_offset)
@@ -49,7 +60,7 @@ HXReturnCodes HX711Calibration::to_json(char *buf, size_t buf_len)
     JsonObject obj = doc.to<JsonObject>();
 
     HXReturnCodes res = to_json(&obj);
-    if (res != HXReturnCodes::OK && res < 0) return res;
+    if (_is_hx_code_error(res)) return res;
 
     size_t theoretical_length = measureJson(obj);
     if (theoretical_length + 1 > buf_len) return HXReturnCodes::JSON_ERROR_SAVING_BUFFER_LENGTH;
@@ -116,7 +127,7 @@ HXReturnCodes HX711Calibration::from_json(char *buf, size_t buf_len)
     // check it's an object and cast it
     JsonObject obj = doc.as<JsonObject>();
     HXReturnCodes res = from_json(&obj);
-    if (res != HXReturnCodes::OK && res < 0) return res;
+    if (_is_hx_code_error(res)) return res;
 
     return res;
 }
@@ -261,29 +272,32 @@ HXReturnCodes HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint3
 HXReturnCodes HX711::read_calib_stats(uint32_t n, HX711Calibration *calib, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms)) return false;
+    HXReturnCodes res = read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms);
+    if (_is_hx_code_error(res)) return res;
 
     (*mean) = calib->slope * raw_mean + calib->offset;
     (*stdev) = sqrt( sq(calib->offset_e) + sq(calib->slope_e)*sq(raw_mean) + sq(calib->slope)*sq(raw_stdev) );
-    return true;
+    return res;
 }
 
 HXReturnCodes HX711::calib_offset(uint32_t n, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms)) return false;
+    HXReturnCodes res = read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms);
+    if (_is_hx_code_error(res)) return res;
 
     calib->offset = raw_mean;
     calib->offset_e = raw_stdev;
     calib->set_offset = true;
-    return true;
+    return res;
 }
 
 HXReturnCodes HX711::calib_slope(uint32_t n, float weight, float weight_error, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!calib->set_offset) return false;
+    if (!calib->set_offset) return HXReturnCodes::HX_ERROR_OFFSET_OR_SLOPE_NOT_SET;
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms)) return false;
+    HXReturnCodes res = read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms);
+    if (_is_hx_code_error(res)) return res;
 
     calib->slope = (weight - calib->offset) / raw_mean;
 
@@ -292,7 +306,7 @@ HXReturnCodes HX711::calib_slope(uint32_t n, float weight, float weight_error, H
     temp = abs(temp);
     calib->slope_e = sqrt( (sq(calib->offset_e) + sq(weight_error)) / raw_mean2 + sq(weight - calib->offset) * abs(temp) );
     calib->set_slope = true;
-    return true;
+    return res;
 }
 
 void HX711::power_off(bool wait_until_power_off)

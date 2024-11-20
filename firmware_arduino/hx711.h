@@ -32,6 +32,7 @@ enum HXReturnCodes : int8_t
     HX_ERROR_TIMEOUT                           = -2,
     HX_ERROR_N_IS_0                            = -3,
     HX_ERROR_NOT_ENOUGH_READINGS_TO_DO_SATS    = -4,
+    HX_ERROR_OFFSET_OR_SLOPE_NOT_SET           = -5,
 
     JSON_ERROR                                 = -10,
     JSON_ERROR_SAVING_OFFSET_FLAG_NOT_SET      = -11,
@@ -42,6 +43,10 @@ enum HXReturnCodes : int8_t
     JSON_ERROR_LOADING_BAD_DESERIALIZATION     = -16,
     JSON_ERROR_LOADING_BAD_SERIALIZATION       = -17,
     JSON_ERROR_LOADING_NO_SLOPE_DATA           = -18,
+    JSON_ERROR_FILE_READ                       = -19,
+    JSON_ERROR_FILE_WRITE                      = -20,
+
+    ERROR_UNAVAILABLE_SLOT                     = -30,
     
     HX_WARNING                                 = 1,
     HX_WARNING_TIMEOUT                         = 2,

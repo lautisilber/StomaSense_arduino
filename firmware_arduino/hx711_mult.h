@@ -31,18 +31,18 @@ public:
 
     void set_slot(uint8_t slot);
 
-    bool read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-    bool read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-    bool read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    HXReturnCodes read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    HXReturnCodes read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    HXReturnCodes read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
 
-    bool calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-    bool calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    HXReturnCodes calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    HXReturnCodes calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
 
-    bool power_down(uint8_t slot, bool wait_until_power_off=false);
-    bool power_up(uint8_t slot);
+    HXReturnCodes power_down(uint8_t slot, bool wait_until_power_off=false);
+    HXReturnCodes power_up(uint8_t slot);
 
-    bool load_calibration();
-    bool save_calibration();
+    HXReturnCodes load_calibration();
+    HXReturnCodes save_calibration();
 };
 
 #endif /* _HX711_MULT_H_ */

@@ -56,65 +56,65 @@ void HX711_Mult::set_slot(uint8_t slot)
     _set_slot(slot);
 }
 
-bool HX711_Mult::read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms)
+HXReturnCodes HX711_Mult::read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot)) return  HXReturnCodes::ERROR_UNAVAILABLE_SLOT;
     _set_slot(slot);
     return _hx.read_raw_single(raw, timeout_ms);
 }
 
-bool HX711_Mult::read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
+HXReturnCodes HX711_Mult::read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot)) return HXReturnCodes::ERROR_UNAVAILABLE_SLOT;
     _set_slot(slot);
     return _hx.read_raw_stats(n, mean, stdev, resulting_n, timeout_ms);
 }
 
-bool HX711_Mult::read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
+HXReturnCodes HX711_Mult::read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot)) return HXReturnCodes::ERROR_UNAVAILABLE_SLOT;
     HX711Calibration *c = &_calibs[slot];
-    if (!c->set_offset || !c->set_slope) return false;
+    if (!c->set_offset || !c->set_slope) return HXReturnCodes::HX_ERROR_OFFSET_OR_SLOPE_NOT_SET;
     _set_slot(slot);
     return _hx.read_calib_stats(n, c, mean, stdev, resulting_n, timeout_ms);
 }
 
-bool HX711_Mult::calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms)
+HXReturnCodes HX711_Mult::calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot)) return HXReturnCodes::ERROR_UNAVAILABLE_SLOT;
     _set_slot(slot);
     return _hx.calib_offset(n, &_calibs[slot], resulting_n, timeout_ms);
 }
 
-bool HX711_Mult::calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms)
+HXReturnCodes HX711_Mult::calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot)) return HXReturnCodes::ERROR_UNAVAILABLE_SLOT;
     _set_slot(slot);
     return _hx.calib_slope(n, weight, weight_error, &_calibs[slot], resulting_n, timeout_ms);
 }
 
-bool HX711_Mult::power_down(uint8_t slot, bool wait_until_power_off)
+HXReturnCodes HX711_Mult::power_down(uint8_t slot, bool wait_until_power_off)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot)) return HXReturnCodes::ERROR_UNAVAILABLE_SLOT;
     _hx.power_off(wait_until_power_off);
-    return true;
+    return HXReturnCodes::OK;
 }
 
-bool HX711_Mult::power_up(uint8_t slot)
+HXReturnCodes HX711_Mult::power_up(uint8_t slot)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot)) return HXReturnCodes::ERROR_UNAVAILABLE_SLOT;
     _hx.power_on();
-    return true;
+    return HXReturnCodes::OK;
 }
 
-bool HX711_Mult::load_calibration()
+HXReturnCodes HX711_Mult::load_calibration()
 {
     File file;
 
     if (!SD_Helper::open_read(&file, HX711_SAVEFILE))
     {
         SD_Helper::close(&file);
-        return false;
+        return HXReturnCodes::JSON_ERROR_FILE_READ;
     }
 
     JsonDocument doc;
@@ -122,34 +122,38 @@ bool HX711_Mult::load_calibration()
     SD_Helper::close(&file);
 
     if (error) {
-        ERROR_PRINTFLN("Can't load calibrations json: deserialization failed with error: '%s'", error.c_str());
-        return false;
+        // ERROR_PRINTFLN("Can't load calibrations json: deserialization failed with error: '%s'", error.c_str());
+        return HXReturnCodes::JSON_ERROR_LOADING_BAD_DESERIALIZATION;
     }
 
     JsonArray arr = doc.as<JsonArray>();
     if (!arr)
     {
-        ERROR_PRINTLN("Couldn't load calibrations: document wasn't a JsonArray");
-        return false;
+        // ERROR_PRINTLN("Couldn't load calibrations: document wasn't a JsonArray");
+        return HXReturnCodes::JSON_ERROR_LOADING_BAD_TYPING;
     }
 
     size_t i = 0;
     if (arr.size() != N_MULTIPLEXERS)
     {
-        ERROR_PRINTFLN("Couldn't load calibrations: the save file has %u entries but %u were expected", arr.size(), N_MULTIPLEXERS);
-        return false;
+        // ERROR_PRINTFLN("Couldn't load calibrations: the save file has %u entries but %u were expected", arr.size(), N_MULTIPLEXERS);
+        return HXReturnCodes::JSON_ERROR_LOADING_BAD_TYPING;
     }
+
+    HXReturnCodes res = HXReturnCodes::OK;
     for (JsonVariant jv : arr)
     {
         JsonObject obj = jv.as<JsonObject>();
-        if (!obj) return false;
-        if (!_calibs[i++].from_json(&obj)) return false;
+        if (!obj) return HXReturnCodes::JSON_ERROR_LOADING_BAD_TYPING;
+
+        res = _calibs[i++].from_json(&obj);
+        if (res != HXReturnCodes::OK) return res;
     }
 
-    return true;
+    return res;
 }
 
-bool HX711_Mult::save_calibration()
+HXReturnCodes HX711_Mult::save_calibration()
 {
     JsonDocument doc;
     JsonArray arr = doc.to<JsonArray>();
@@ -168,7 +172,7 @@ bool HX711_Mult::save_calibration()
     if (!SD_Helper::open_write(&file, HX711_SAVEFILE))
     {
         SD_Helper::close(&file);
-        return false;
+        return HXReturnCodes::JSON_ERROR_FILE_WRITE;
     }
 
     size_t min_size = measureJson(arr);
@@ -177,9 +181,9 @@ bool HX711_Mult::save_calibration()
 
     if (min_size < actual_size)
     {
-        ERROR_PRINTFLN("Couldn't save calibrations: written %u bytes when the json was %u bytes long", actual_size, min_size);
-        return false;
+        // ERROR_PRINTFLN("Couldn't save calibrations: written %u bytes when the json was %u bytes long", actual_size, min_size);
+        return HXReturnCodes::JSON_ERROR_FILE_WRITE;
     }
 
-    return true;
+    return HXReturnCodes::OK;
 }
