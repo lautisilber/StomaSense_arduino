@@ -58,51 +58,108 @@ void HX711_Mult::set_slot(uint8_t slot)
 
 bool HX711_Mult::read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot))
+    {
+        ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
+        return false;
+    }
     _set_slot(slot);
-    return _hx.read_raw_single(raw, timeout_ms);
+    bool res = _hx.read_raw_single(raw, timeout_ms);
+    if (!res)
+    {
+        ERROR_PRINTLN("Error in HX711_Mult::read_raw_single due to error in HX711::read_raw_single");
+    }
+    return res;
 }
 
 bool HX711_Mult::read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot))
+    {
+        ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
+        return false;
+    }
     _set_slot(slot);
-    return _hx.read_raw_stats(n, mean, stdev, resulting_n, timeout_ms);
+    bool res = _hx.read_raw_stats(n, mean, stdev, resulting_n, timeout_ms);
+    if (!res)
+    {
+        ERROR_PRINTLN("Error in HX711_Mult::read_raw_stats due to error in HX711::read_raw_stats");
+    }
+    return res;
 }
 
 bool HX711_Mult::read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot))
+    {
+        ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
+        return false;
+    }
     HX711Calibration *c = &_calibs[slot];
-    if (!c->set_offset || !c->set_slope) return false;
+    if (!c->set_offset || !c->set_slope)
+    {
+        ERROR_PRINTFLN("Cannot call HX711_Mult::read_calib_stats when offset or slope is not set (slot %u)", slot);
+        return false;
+    }
     _set_slot(slot);
-    return _hx.read_calib_stats(n, c, mean, stdev, resulting_n, timeout_ms);
+    bool res = _hx.read_calib_stats(n, c, mean, stdev, resulting_n, timeout_ms);
+    if (!res)
+    {
+        ERROR_PRINTLN("Error in HX711_Mult::read_calib_stats due to error in HX711::read_calib_stats");
+    }
+    return res;
 }
 
 bool HX711_Mult::calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot))
+    {
+        ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
+        return false;
+    }
     _set_slot(slot);
-    return _hx.calib_offset(n, &_calibs[slot], resulting_n, timeout_ms);
+    bool res = _hx.calib_offset(n, &_calibs[slot], resulting_n, timeout_ms);
+    if (!res)
+    {
+        ERROR_PRINTLN("Error in HX711_Mult::calib_offset due to error in HX711::calib_offset");
+    }
+    return res;
 }
 
 bool HX711_Mult::calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot))
+    {
+        ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
+        return false;
+    }
     _set_slot(slot);
-    return _hx.calib_slope(n, weight, weight_error, &_calibs[slot], resulting_n, timeout_ms);
+    bool res = _hx.calib_slope(n, weight, weight_error, &_calibs[slot], resulting_n, timeout_ms);
+    if (!res)
+    {
+        ERROR_PRINTLN("Error in HX711_Mult::calib_slope due to error in HX711::calib_slope");
+    }
+    return res;
 }
 
 bool HX711_Mult::power_down(uint8_t slot, bool wait_until_power_off)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot))
+    {
+        ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
+        return false;
+    }
     _hx.power_off(wait_until_power_off);
     return true;
 }
 
 bool HX711_Mult::power_up(uint8_t slot)
 {
-    if (!is_slot_valid(slot)) return false;
+    if (!is_slot_valid(slot))
+    {
+        ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
+        return false;
+    }
     _hx.power_on();
     return true;
 }
@@ -114,6 +171,7 @@ bool HX711_Mult::load_calibration()
     if (!SD_Helper::open_read(&file, HX711_SAVEFILE))
     {
         SD_Helper::close(&file);
+        ERROR_PRINTLN("HX711: Couldn't read file for reading");
         return false;
     }
 
@@ -121,7 +179,8 @@ bool HX711_Mult::load_calibration()
     DeserializationError error = deserializeJson(doc, file);
     SD_Helper::close(&file);
 
-    if (error) {
+    if (error)
+    {
         ERROR_PRINTFLN("Can't load calibrations json: deserialization failed with error: '%s'", error.c_str());
         return false;
     }
@@ -133,17 +192,32 @@ bool HX711_Mult::load_calibration()
         return false;
     }
 
-    size_t i = 0;
     if (arr.size() != N_MULTIPLEXERS)
     {
         ERROR_PRINTFLN("Couldn't load calibrations: the save file has %u entries but %u were expected", arr.size(), N_MULTIPLEXERS);
         return false;
     }
-    for (JsonVariant jv : arr)
+
+    // validate
+    for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
     {
-        JsonObject obj = jv.as<JsonObject>();
-        if (!obj) return false;
-        if (!_calibs[i++].from_json(&obj)) return false;
+        JsonObject obj = arr[i].as<JsonObject>();
+        if (!obj)
+        {
+            ERROR_PRINTLN("JsonVariant wasn't a JsonObject");
+            return false;
+        }
+    }
+
+    // write validated data
+    for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
+    {
+        JsonObject obj = arr[i].as<JsonObject>();
+        if (!_calibs[i].from_json(&obj))
+        {
+            ERROR_PRINTFLN("Couldn't get calib from json for slot %u", i);
+            return false;
+        }
     }
 
     return true;
@@ -168,6 +242,7 @@ bool HX711_Mult::save_calibration()
     if (!SD_Helper::open_write(&file, HX711_SAVEFILE))
     {
         SD_Helper::close(&file);
+        ERROR_PRINTLN("HX711_Mult: Couldn't write file");
         return false;
     }
 

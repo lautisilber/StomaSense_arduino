@@ -13,6 +13,10 @@
 #define N_MULTIPLEXERS pwrtwo(N_MULTIPLEXER_PINS)
 #define HX711_SAVEFILE "HXCALIB.JSN"
 
+#if N_MULTIPLEXERS <= 0
+#error "There should be at least 1 scale"
+#endif
+
 class HX711_Mult
 {
 private:
@@ -22,6 +26,15 @@ private:
     HX711Calibration _calibs[N_MULTIPLEXERS];
 
     void _set_slot(uint8_t slot);
+
+    static void print_line(uint32_t line)
+    #if defined(D_INFO)
+    {
+        INFO_PRINTFLN("HX code generated in HX_Mult from line %ul", line);
+    }
+    #else
+    {}
+    #endif
 
 public:
     HX711_Mult(pin_size_t mult_pin_1, pin_size_t mult_pin_2, pin_size_t mult_pin_3, pin_size_t mult_pin_4,

@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include "debug_helper.h"
 
 // inspired by https://github.com/bogde/HX711
 
@@ -24,43 +25,15 @@ enum HX711Gain : uint8_t
     B32 = 2,
 };
 
-enum HXReturnCodes : int8_t
-{
-    OK = 0,
-
-    HX_ERROR                                   = -1,
-    HX_ERROR_TIMEOUT                           = -2,
-    HX_ERROR_N_IS_0                            = -3,
-    HX_ERROR_NOT_ENOUGH_READINGS_TO_DO_SATS    = -4,
-
-    JSON_ERROR                                 = -10,
-    JSON_ERROR_SAVING_OFFSET_FLAG_NOT_SET      = -11,
-    JSON_ERROR_SAVING_BUFFER_LENGTH            = -12,
-    JSON_ERROR_LOADING_NOT_JSONOBJECT          = -13,
-    JSON_ERROR_LOADING_BAD_TYPING              = -14,
-    JSON_ERROR_LOADING_SLOPE_DATA              = -15,
-    JSON_ERROR_LOADING_BAD_DESERIALIZATION     = -16,
-    JSON_ERROR_LOADING_BAD_SERIALIZATION       = -17,
-    JSON_ERROR_LOADING_NO_SLOPE_DATA           = -18,
-    
-    HX_WARNING                                 = 1,
-    HX_WARNING_TIMEOUT                         = 2,
-    HX_WARNING_DOING_STATS_WITH_N_1            = 3,
-
-    JSON_WARNING                               = 10,
-    JSON_WARNING_OFFSET_FLAG_NOT_SET           = 11,
-    JSON_WARNING_SERIALIZED_LESS_THAN_MEASURED = 12,
-};
-
 struct HX711Calibration
 {
     float offset, slope, offset_e, slope_e;
     bool set_offset = false, set_slope = false;
 
-    HXReturnCodes to_json(JsonObject *obj);
-    HXReturnCodes to_json(char *buf, size_t buf_len);
-    HXReturnCodes from_json(JsonObject *obj);
-    HXReturnCodes from_json(char *buf, size_t buf_len);
+    bool to_json(JsonObject *obj);
+    bool to_json(char *buf, size_t buf_len);
+    bool from_json(JsonObject *obj);
+    bool from_json(char *buf, size_t buf_len);
 };
 
 class HX711
@@ -78,14 +51,14 @@ public:
     
     bool is_ready();
     void wait_ready();
-    HXReturnCodes wait_ready_timeout(unsigned long timeout_ms=5000);
+    bool wait_ready_timeout(unsigned long timeout_ms=5000);
     
-    HXReturnCodes read_raw_single(int32_t *raw, uint32_t timeout_ms=5000);
-    HXReturnCodes read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=5000);
-    HXReturnCodes read_calib_stats(uint32_t n, HX711Calibration *calib, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=5000);
+    bool read_raw_single(int32_t *raw, uint32_t timeout_ms=5000);
+    bool read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=5000);
+    bool read_calib_stats(uint32_t n, HX711Calibration *calib, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=5000);
     
-    HXReturnCodes calib_offset(uint32_t n, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms=5000);
-    HXReturnCodes calib_slope(uint32_t n, float weight, float weight_error, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms=5000);
+    bool calib_offset(uint32_t n, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms=5000);
+    bool calib_slope(uint32_t n, float weight, float weight_error, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms=5000);
 
     void power_off(bool wait_until_power_off=false);
     void power_on();

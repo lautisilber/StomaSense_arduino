@@ -6,19 +6,18 @@
 #include "debug_helper.h"
 
 
-HXReturnCodes HX711Calibration::to_json(JsonObject *obj)
+
+bool HX711Calibration::to_json(JsonObject *obj)
 {
     if (!set_offset)
     {
-        // ERROR_PRINTLN("Can't create json for calibration: offset data flag is false");
-        // return false;
-        return HXReturnCodes::JSON_ERROR_SAVING_OFFSET_FLAG_NOT_SET;
+        ERROR_PRINTLN("Can't create json for calibration: offset data flag is false");
+        return false;
     }
 
     (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET] = offset;
     (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR] = offset_e;
 
-    HXReturnCodes res = HXReturnCodes::OK;
     if (set_slope)
     {
         (*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE] = slope;
@@ -26,54 +25,63 @@ HXReturnCodes HX711Calibration::to_json(JsonObject *obj)
     }
     else
     {
-        // WARN_PRINTLN("Creating json for calibration without slope data: slope data flag is false");
-        res = HXReturnCodes::JSON_WARNING_OFFSET_FLAG_NOT_SET;
+        WARN_PRINTLN("Creating json for calibration without slope data: slope data flag is false");
     }
 
-    return res;
+    return true;
 }
 
-HXReturnCodes HX711Calibration::to_json(char *buf, size_t buf_len)
+bool HX711Calibration::to_json(char *buf, size_t buf_len)
 {
-    if (buf_len < HX711_CALIBRATION_JSON_BUF_LEN) return HXReturnCodes::JSON_ERROR_SAVING_BUFFER_LENGTH;
+    if (buf_len < HX711_CALIBRATION_JSON_BUF_LEN)
+    {
+        ERROR_PRINTFLN("Buffer too small. It is %ul but should be at least %ul", buf_len, HX711_CALIBRATION_JSON_BUF_LEN);
+        return false;
+    }
     
     // set offset
     if (!set_offset)
     {
-        // ERROR_PRINTLN("Can't create json for calibration: offset data flag is false");
-        // return false;
-        return HXReturnCodes::JSON_ERROR_SAVING_OFFSET_FLAG_NOT_SET;
+        ERROR_PRINTLN("Can't create json for calibration: offset data flag is false");
+        return false;
     }
     
     JsonDocument doc;
     JsonObject obj = doc.to<JsonObject>();
 
-    HXReturnCodes res = to_json(&obj);
-    if (res != HXReturnCodes::OK && res < 0) return res;
+    if (!to_json(&obj))
+    {
+        ERROR_PRINTLN("Error in method to_json(JsonDocument&)");
+        return false;
+    }
 
     size_t theoretical_length = measureJson(obj);
-    if (theoretical_length + 1 > buf_len) return HXReturnCodes::JSON_ERROR_SAVING_BUFFER_LENGTH;
-    return serializeJson(obj, buf, buf_len) >= theoretical_length ? HXReturnCodes::OK : HXReturnCodes::JSON_WARNING_SERIALIZED_LESS_THAN_MEASURED;
+    if (theoretical_length > buf_len-1)
+    {
+        ERROR_PRINTFLN("The theoretical length of the JSON (%ul) is bigger than the buffer length (%ul)", theoretical_length, buf_len);
+        return false;
+    }
+    size_t actual_length = serializeJson(obj, buf, buf_len);
+    bool res = actual_length >= theoretical_length;
+    if (!res)
+        ERROR_PRINTFLN("The number of bytes written (%ul) is smaller than the theoretical length of the stringified JSON (%ul)", actual_length, theoretical_length);
+    return res;
 }
 
-HXReturnCodes HX711Calibration::from_json(JsonObject *obj)
+bool HX711Calibration::from_json(JsonObject *obj)
 {
     if (!obj)
     {
-        // ERROR_PRINTLN("Can't load calibration json: obj is not a JsonObject");
-        // return false;
-        return HXReturnCodes::JSON_ERROR_LOADING_NOT_JSONOBJECT;
+        ERROR_PRINTLN("Can't load calibration json: obj is not a JsonObject");
+        return false;
     }
 
     // check offset keys exist and are of right type
-    // if (!obj.containsKey(HX711_CALIBRATION_JSON_KEY_OFFSET) ||
-    //     !obj.containsKey(HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR)) return false;
     if (!(*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET].is<float>() ||
         !(*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR].is<float>())
     {
-        // ERROR_PRINTFLN("Can't load calibration json: offset keys ('%s' and '%s') aren't floats", HX711_CALIBRATION_JSON_KEY_OFFSET, HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR);
-        // return false;
-        return HXReturnCodes::JSON_ERROR_LOADING_BAD_TYPING;
+        ERROR_PRINTFLN("Can't load calibration json: offset keys ('%s' and '%s') aren't floats", HX711_CALIBRATION_JSON_KEY_OFFSET, HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR);
+        return false;
     }
     offset = (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET].as<float>();
     offset_e = (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR].as<float>();
@@ -81,8 +89,6 @@ HXReturnCodes HX711Calibration::from_json(JsonObject *obj)
 
     // check offset keys exist and are of right type
     set_slope = false;
-    // if (!obj.containsKey(HX711_CALIBRATION_JSON_KEY_SLOPE) ||
-    //     !obj.containsKey(HX711_CALIBRATION_JSON_KEY_SLOPE_ERROR))
     if (!(*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE].is<float>() ||
         !(*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE_ERROR].is<float>())
     {
@@ -91,38 +97,29 @@ HXReturnCodes HX711Calibration::from_json(JsonObject *obj)
         set_slope = true;
     }
 
-    HXReturnCodes res = HXReturnCodes::OK;
     if (!set_slope)
     {
-        // Serial.println("Warning: couldn't load slope data for calibration");
-        res = HXReturnCodes::JSON_ERROR_SAVING_BUFFER_LENGTH;
+        WARN_PRINTLN("Couldn't load slope data for calibration");
     }
 
-    return res;
+    return true;
 }
 
-HXReturnCodes HX711Calibration::from_json(char *buf, size_t buf_len)
+bool HX711Calibration::from_json(char *buf, size_t buf_len)
 {
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, buf, buf_len-1);
     buf[buf_len-1] = '\0';
 
     if (error) {
-        // ERROR_PRINTFLN("Can't load calibration json: deserialization failed with error: '%s'\nThe original content was '%s'", error.c_str(), buf);
-        // return false;
-        return HXReturnCodes::JSON_ERROR_LOADING_BAD_DESERIALIZATION;
+        ERROR_PRINTFLN("Can't load calibration json: deserialization failed with error: '%s'\nThe original content was '%s'", error.c_str(), buf);
+        return false;
     }
 
     // check it's an object and cast it
     JsonObject obj = doc.as<JsonObject>();
-    HXReturnCodes res = from_json(&obj);
-    if (res != HXReturnCodes::OK && res < 0) return res;
-
-    return res;
+    return from_json(&obj);
 }
-
-
-
 
 inline void HX711::pulse()
 {
@@ -154,13 +151,13 @@ void HX711::wait_ready()
         sleep_us(HX711_IS_READY_POLLING_DELAY_US);
 }
 
-HXReturnCodes HX711::wait_ready_timeout(unsigned long timeout_ms)
+bool HX711::wait_ready_timeout(unsigned long timeout_ms)
 {
     const unsigned long start_time_ms = millis();
     unsigned long ms, time_diff = 0;
     while (time_diff < timeout_ms)
     {
-        if (is_ready()) return HXReturnCodes::OK;
+        if (is_ready()) return true;
         sleep_us(HX711_IS_READY_POLLING_DELAY_US);
 
         ms = millis();
@@ -170,11 +167,11 @@ HXReturnCodes HX711::wait_ready_timeout(unsigned long timeout_ms)
             time_diff = (std::numeric_limits<unsigned long>::max() - start_time_ms) + ms;
     }
 
-    // WARN_PRINTLN("HX711 timed out waiting for it to be ready");
-    return HXReturnCodes::HX_ERROR_TIMEOUT;
+    WARN_PRINTLN("HX711 timed out waiting for to be ready");
+    return false;
 }
 
-HXReturnCodes HX711::read_raw_single(int32_t *raw, uint32_t timeout_ms)
+bool HX711::read_raw_single(int32_t *raw, uint32_t timeout_ms)
 {
     uint32_t ints;
     uint8_t i, j, data[3] = {0}, filler;
@@ -184,7 +181,11 @@ HXReturnCodes HX711::read_raw_single(int32_t *raw, uint32_t timeout_ms)
 
     // wait for ready
     if (timeout_ms > 0)
-        if (wait_ready_timeout(timeout_ms) != HXReturnCodes::OK) return HXReturnCodes::HX_ERROR_TIMEOUT;
+        if (!wait_ready_timeout(timeout_ms))
+        {
+            ERROR_PRINTLN("Timeout error in HX711::read_raw_single");
+            return false;
+        }
     else
         wait_ready();
 
@@ -217,29 +218,31 @@ HXReturnCodes HX711::read_raw_single(int32_t *raw, uint32_t timeout_ms)
         filler = 0x00;
 
     (*raw) = static_cast<int32_t>(static_cast<uint32_t>(filler) << 24 |
-            static_cast<uint32_t>(data[2]) << 16 |
-            static_cast<uint32_t>(data[1]) << 8 |
-            static_cast<uint32_t>(data[0]));
-    return HXReturnCodes::OK;
+             static_cast<uint32_t>(data[2]) << 16 |
+             static_cast<uint32_t>(data[1]) << 8 |
+             static_cast<uint32_t>(data[0]));
+    return true;
 }
 
-HXReturnCodes HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
+bool HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    HXReturnCodes res = HXReturnCodes::OK;
     int32_t raw;
     if (n == 0)
     {
-        // ERROR_PRINTLN("Can't read stats with n = 0");
-        return HXReturnCodes::HX_ERROR_N_IS_0;
+        ERROR_PRINTLN("Can't read stats with n = 0");
+        return false;
     }
     else if (n == 1)
     {
-        res = read_raw_single(&raw, timeout_ms);
-        if (res != HXReturnCodes::OK) return res;
+        if (!read_raw_single(&raw, timeout_ms))
+        {
+            ERROR_PRINTLN("Error in HX711::read_raw_stats due to error in HX711::read_raw_single");
+            return false;
+        }
         (*mean) = static_cast<float>(raw);
         (*stdev) = -1.0;
-        // WARN_PRINTLN("Using read_raw_stats with n = 1. Use read_raw_single instead");
-        res = HXReturnCodes::HX_WARNING_DOING_STATS_WITH_N_1;
+        WARN_PRINTLN("Using read_raw_stats with n = 1. Use read_raw_single instead");
+        return true;
     }
 
     Welfords::Aggregate agg;
@@ -252,46 +255,66 @@ HXReturnCodes HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint3
 
     if (!Welfords::finalize(&agg, mean, stdev))
     {
-        return HXReturnCodes::HX_ERROR_NOT_ENOUGH_READINGS_TO_DO_SATS;
+        ERROR_PRINTFLN("Couldn't finalize welford's algorithm because there weren't enough samples (%ul)", agg.count);
+        return false;
     }
     (*resulting_n) = agg.count;
-    return res;
-}
-
-HXReturnCodes HX711::read_calib_stats(uint32_t n, HX711Calibration *calib, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
-{
-    float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms)) return false;
-
-    (*mean) = calib->slope * raw_mean + calib->offset;
-    (*stdev) = sqrt( sq(calib->offset_e) + sq(calib->slope_e)*sq(raw_mean) + sq(calib->slope)*sq(raw_stdev) );
     return true;
 }
 
-HXReturnCodes HX711::calib_offset(uint32_t n, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
+bool HX711::read_calib_stats(uint32_t n, HX711Calibration *calib, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms)) return false;
+    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms))
+    {
+        ERROR_PRINTLN("Error in HX711::read_calib_stats due to error in HX711::read_raw_stats");
+        return false;
+    }
+
+    (*mean) = calib->slope * raw_mean + calib->offset;
+    (*stdev) = sqrt( sq(calib->offset_e) + sq(calib->slope_e)*sq(raw_mean) + sq(calib->slope)*sq(raw_stdev) );
+
+    return true;
+}
+
+bool HX711::calib_offset(uint32_t n, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
+{
+    float raw_mean, raw_stdev;
+    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms))
+    {
+        ERROR_PRINTLN("Error in HX711::calib_offset due to error in HX711::read_raw_stats");
+        return false;
+    }
 
     calib->offset = raw_mean;
     calib->offset_e = raw_stdev;
     calib->set_offset = true;
+
     return true;
 }
 
-HXReturnCodes HX711::calib_slope(uint32_t n, float weight, float weight_error, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
+bool HX711::calib_slope(uint32_t n, float weight, float weight_error, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
 {
-    if (!calib->set_offset) return false;
+    if (!calib->set_offset)
+    {
+        ERROR_PRINTLN("Cannot calibrate slope when offset is not set");
+        return false;
+    }
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms)) return false;
+    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms))
+    {
+        ERROR_PRINTLN("Error in HX711::calib_offset due to error in HX711::read_raw_stats");
+        return false;
+    }
 
     calib->slope = (weight - calib->offset) / raw_mean;
 
     float raw_mean2 = sq(raw_mean);
     float temp = raw_stdev / raw_mean2;
-    temp = abs(temp);
+    temp = abs(temp); // this shouldn't be necessary
     calib->slope_e = sqrt( (sq(calib->offset_e) + sq(weight_error)) / raw_mean2 + sq(weight - calib->offset) * abs(temp) );
     calib->set_slope = true;
+
     return true;
 }
 
