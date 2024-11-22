@@ -2,6 +2,7 @@
 #define _HX711_MULT_H_
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include "hx711.h"
 
 #ifndef HX711_DEFAULT_TIMEOUT_MS
@@ -27,14 +28,7 @@ private:
 
     void _set_slot(uint8_t slot);
 
-    static void print_line(uint32_t line)
-    #if defined(D_INFO)
-    {
-        INFO_PRINTFLN("HX code generated in HX_Mult from line %ul", line);
-    }
-    #else
-    {}
-    #endif
+    bool _load_calibration(JsonDocument *doc);
 
 public:
     HX711_Mult(pin_size_t mult_pin_1, pin_size_t mult_pin_2, pin_size_t mult_pin_3, pin_size_t mult_pin_4,
@@ -55,7 +49,10 @@ public:
     bool power_up(uint8_t slot);
 
     bool load_calibration();
+    bool load_calibration(const char *json);
     bool save_calibration();
+
+    inline const HX711Calibration *get_calibs() const { return (const HX711Calibration *)_calibs; }
 };
 
 #endif /* _HX711_MULT_H_ */

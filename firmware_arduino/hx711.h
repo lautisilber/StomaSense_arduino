@@ -13,6 +13,7 @@
 #define HX711_POWER_DOWN_DELAY_US 60
 
 #define HX711_CALIBRATION_JSON_BUF_LEN          96
+#define HX711_CALIBRATION_JSON_KEY_SLOT         "st"
 #define HX711_CALIBRATION_JSON_KEY_OFFSET       "o"
 #define HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR "oe"
 #define HX711_CALIBRATION_JSON_KEY_SLOPE        "s"
@@ -27,13 +28,15 @@ enum HX711Gain : uint8_t
 
 struct HX711Calibration
 {
+    uint8_t slot;
     float offset, slope, offset_e, slope_e;
     bool set_offset = false, set_slope = false;
 
-    bool to_json(JsonObject *obj);
-    bool to_json(char *buf, size_t buf_len);
+    bool to_json(JsonObject *obj) const;
+    bool to_json(char *buf, size_t buf_len) const;
     bool from_json(JsonObject *obj);
     bool from_json(char *buf, size_t buf_len);
+    bool populated() const;
 };
 
 class HX711

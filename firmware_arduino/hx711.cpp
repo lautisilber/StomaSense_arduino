@@ -7,7 +7,7 @@
 
 
 
-bool HX711Calibration::to_json(JsonObject *obj)
+bool HX711Calibration::to_json(JsonObject *obj) const
 {
     if (!set_offset)
     {
@@ -15,6 +15,7 @@ bool HX711Calibration::to_json(JsonObject *obj)
         return false;
     }
 
+    (*obj)[HX711_CALIBRATION_JSON_KEY_SLOT] = slot;
     (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET] = offset;
     (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR] = offset_e;
 
@@ -31,11 +32,11 @@ bool HX711Calibration::to_json(JsonObject *obj)
     return true;
 }
 
-bool HX711Calibration::to_json(char *buf, size_t buf_len)
+bool HX711Calibration::to_json(char *buf, size_t buf_len) const
 {
     if (buf_len < HX711_CALIBRATION_JSON_BUF_LEN)
     {
-        ERROR_PRINTFLN("Buffer too small. It is %ul but should be at least %ul", buf_len, HX711_CALIBRATION_JSON_BUF_LEN);
+        ERROR_PRINTFLN("Buffer too small. It is %lu but should be at least %lu", buf_len, HX711_CALIBRATION_JSON_BUF_LEN);
         return false;
     }
     
@@ -58,13 +59,13 @@ bool HX711Calibration::to_json(char *buf, size_t buf_len)
     size_t theoretical_length = measureJson(obj);
     if (theoretical_length > buf_len-1)
     {
-        ERROR_PRINTFLN("The theoretical length of the JSON (%ul) is bigger than the buffer length (%ul)", theoretical_length, buf_len);
+        ERROR_PRINTFLN("The theoretical length of the JSON (%lu) is bigger than the buffer length (%lu)", theoretical_length, buf_len);
         return false;
     }
     size_t actual_length = serializeJson(obj, buf, buf_len);
     bool res = actual_length >= theoretical_length;
     if (!res)
-        ERROR_PRINTFLN("The number of bytes written (%ul) is smaller than the theoretical length of the stringified JSON (%ul)", actual_length, theoretical_length);
+        ERROR_PRINTFLN("The number of bytes written (%lu) is smaller than the theoretical length of the stringified JSON (%lu)", actual_length, theoretical_length);
     return res;
 }
 
@@ -77,12 +78,14 @@ bool HX711Calibration::from_json(JsonObject *obj)
     }
 
     // check offset keys exist and are of right type
-    if (!(*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET].is<float>() ||
+    if (!(*obj)[HX711_CALIBRATION_JSON_KEY_SLOT].is<uint8_t>() ||
+        !(*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET].is<float>() ||
         !(*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR].is<float>())
     {
-        ERROR_PRINTFLN("Can't load calibration json: offset keys ('%s' and '%s') aren't floats", HX711_CALIBRATION_JSON_KEY_OFFSET, HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR);
+        ERROR_PRINTFLN("Can't load calibration json: slot is not uint8_t ('%s') or offset keys ('%s' and '%s') aren't floats", HX711_CALIBRATION_JSON_KEY_SLOT, HX711_CALIBRATION_JSON_KEY_OFFSET, HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR);
         return false;
     }
+    slot = (*obj)[HX711_CALIBRATION_JSON_KEY_SLOT].as<uint8_t>();
     offset = (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET].as<float>();
     offset_e = (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR].as<float>();
     set_offset = true;
@@ -119,6 +122,11 @@ bool HX711Calibration::from_json(char *buf, size_t buf_len)
     // check it's an object and cast it
     JsonObject obj = doc.as<JsonObject>();
     return from_json(&obj);
+}
+
+bool HX711Calibration::populated() const
+{
+    return set_offset || set_slope;
 }
 
 inline void HX711::pulse()
@@ -255,7 +263,7 @@ bool HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resu
 
     if (!Welfords::finalize(&agg, mean, stdev))
     {
-        ERROR_PRINTFLN("Couldn't finalize welford's algorithm because there weren't enough samples (%ul)", agg.count);
+        ERROR_PRINTFLN("Couldn't finalize welford's algorithm because there weren't enough samples (%lu)", agg.count);
         return false;
     }
     (*resulting_n) = agg.count;

@@ -1,3 +1,4 @@
+#include "pico/types.h"
 #include "rtc_helper.h"
 
 // #include <cstddef>
@@ -6,7 +7,6 @@
 #include "hardware/rtc.h"
 #include "pico/util/datetime.h"
 #include "debug_helper.h"
-#include <ArduinoJson.h>
 
 
 namespace RTC {
@@ -21,42 +21,35 @@ namespace RTC {
         return true;
     }
 
-    bool set_datetime(JsonDocument *doc)
+    bool set_datetime(int16_t year, int8_t month, int8_t day, int8_t hour, int8_t minute, int8_t second)
     {
-        if (
-            !(*doc)[RTC_JSON_KEY_YEAR].is<uint16_t>() ||
-            !(*doc)[RTC_JSON_KEY_MONTH].is<uint8_t>() ||
-            !(*doc)[RTC_JSON_KEY_DAY].is<uint8_t>() ||
-            !(*doc)[RTC_JSON_KEY_HOUR].is<uint8_t>() ||
-            !(*doc)[RTC_JSON_KEY_MINUTE].is<uint8_t>() ||
-            !(*doc)[RTC_JSON_KEY_SECOND].is<uint8_t>()
-        )
+        datetime_t dt = {
+            .year = year,
+            .month = month,
+            .day = day,
+            .hour = hour,
+            .min = minute,
+            .sec = second
+        };
+        bool res = rtc_set_datetime(&dt);
+        if (!res)
         {
-            ERROR_PRINTLN("Couldn't get datetime from JsonDocument: Keys messing or badly typed");
-            return false;
+            ERROR_PRINTLN("Error setting datetime for rtc");
         }
-
-        datetime_t dt;
-        dt.year = (*doc)[RTC_JSON_KEY_YEAR].as<uint16_t>();
-        dt.month = (*doc)[RTC_JSON_KEY_MONTH].as<uint8_t>();
-        dt.day = (*doc)[RTC_JSON_KEY_DAY].as<uint8_t>();
-        dt.hour = (*doc)[RTC_JSON_KEY_HOUR].as<uint8_t>();
-        dt.min = (*doc)[RTC_JSON_KEY_MINUTE].as<uint8_t>();
-        dt.sec = (*doc)[RTC_JSON_KEY_SECOND].as<uint8_t>();
-
-        return rtc_set_datetime(&dt);
+        return res;
     }
 
-    bool set_datetime(const char *json)
+    bool set_datetime(const char *rtc_str)
     {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, json);
-        if (error)
+        int16_t year;
+        int8_t month, day, hour, minute, second;
+        const char format[] = "%i-%i-%i_%i-%i-%i";
+        if (sscanf(rtc_str, format, &year, &month, &day, &hour, &minute, &second) != 6)
         {
-            ERROR_PRINTFLN("Couldn't deserialize json to set datetime.\n\tOriginal str: '%s'\n\tError: '%s'\n", json, error.c_str());
+            ERROR_PRINTFLN("Coudln't extract rtc from str '%s' because it didn't match format '%s'", rtc_str, format);
             return false;
         }
-        return set_datetime(&doc);
+        return set_datetime(year, month, day, hour, minute, second);
     }
 
     bool get_datetime(datetime_t *dt)
@@ -74,8 +67,9 @@ namespace RTC {
     const char *get_timestamp()
     {
         datetime_t dt;
+        const char format[] = "%04d-%02d-%02d_%02d-%02d-%02d";
         if (!get_datetime(&dt)) return NULL;
-        snprintf(_rtc_buf, RTC_TIMESTAMP_STR_LENGTH, "%04d-%02d-%02d %02d:%02d:%02d",
+        snprintf(_rtc_buf, RTC_TIMESTAMP_STR_LENGTH, format,
         dt.year%1000, dt.month%100, dt.day%100, dt.hour%100, dt.min%100, dt.sec%100);
         return (const char *)_rtc_buf;
     }

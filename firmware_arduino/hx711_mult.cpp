@@ -1,6 +1,7 @@
 #include "hx711_mult.h"
 #include "debug_helper.h"
 #include "sd_helper.h"
+#include "algos.h"
 
 static const bool multiplexer_configs[N_MULTIPLEXERS][N_MULTIPLEXER_PINS] = {
     {0, 0, 0, 0},
@@ -164,6 +165,89 @@ bool HX711_Mult::power_up(uint8_t slot)
     return true;
 }
 
+
+bool HX711_Mult::_load_calibration(JsonDocument *doc)
+{
+    JsonArray arr = doc->as<JsonArray>();
+    if (!arr)
+    {
+        ERROR_PRINTLN("Couldn't load calibrations: document wasn't a JsonArray");
+        return false;
+    }
+
+    // if (arr.size() != N_MULTIPLEXERS)
+    // {
+    //     ERROR_PRINTFLN("Couldn't load calibrations: the save file has %u entries but %u were expected", arr.size(), N_MULTIPLEXERS);
+    //     return false;
+    // }
+
+    // // validate
+    // for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
+    // {
+    //     JsonObject obj = arr[i].as<JsonObject>();
+    //     if (!obj)
+    //     {
+    //         ERROR_PRINTLN("JsonVariant wasn't a JsonObject");
+    //         return false;
+    //     }
+    // }
+
+    // // write validated data
+    // for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
+    // {
+    //     JsonObject obj = arr[i].as<JsonObject>();
+    //     if (!_calibs[i].from_json(&obj))
+    //     {
+    //         ERROR_PRINTFLN("Couldn't get calib from json for slot %u", i);
+    //         return false;
+    //     }
+    // }
+
+    for (size_t i = 0; i < arr.size(); i++)
+    {
+        if (i == N_MULTIPLEXERS)
+        {
+            WARN_PRINTLN("Stopped loading calibration array elements to avoid buffer overflow");
+            break;
+        }
+        JsonObject obj = arr[i].as<JsonObject>();
+        if (!obj)
+        {
+            WARN_PRINTFLN("The element %lu of the calibration array couldn't be loaded because it wasn't a JsonObject", i);
+            continue;
+        }
+        if (!_calibs[i].from_json(&obj))
+        {
+            WARN_PRINTFLN("Couldn't get calib from json for slot %u", i);
+            continue;
+        }
+    }
+
+    // get map_calibs_slots and validate slot values
+    int8_t map_calibs_slots[N_MULTIPLEXERS];
+    memset(map_calibs_slots, -1, N_MULTIPLEXERS);
+    for (size_t i = 0; i < N_MULTIPLEXERS; i++)
+    {
+        if (!_calibs[i].populated()) break;
+        if (_calibs[i].slot > N_MULTIPLEXERS)
+        {
+            WARN_PRINTFLN("Calibration number %lu has slot %u, but there are %u slots", i, _calibs[i].slot, N_MULTIPLEXERS);
+            // dehabilitate this particular calib
+            _calibs[i].set_offset = false;
+            _calibs[i].set_slope = false;
+        }
+        else
+        {
+            map_calibs_slots[i] = _calibs[i].slot;
+        }
+    }
+
+    // sort _calibs to match their slot
+    sort_with_index_array<HX711Calibration, int8_t, N_MULTIPLEXERS>(_calibs, map_calibs_slots);
+
+    return true;
+}
+
 bool HX711_Mult::load_calibration()
 {
     File file;
@@ -185,42 +269,21 @@ bool HX711_Mult::load_calibration()
         return false;
     }
 
-    JsonArray arr = doc.as<JsonArray>();
-    if (!arr)
+    return _load_calibration(&doc);
+}
+
+bool HX711_Mult::load_calibration(const char *json)
+{
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, json);
+    
+    if (error)
     {
-        ERROR_PRINTLN("Couldn't load calibrations: document wasn't a JsonArray");
+        ERROR_PRINTFLN("Can't load calibrations json: deserialization failed with error: '%s'", error.c_str());
         return false;
     }
 
-    if (arr.size() != N_MULTIPLEXERS)
-    {
-        ERROR_PRINTFLN("Couldn't load calibrations: the save file has %u entries but %u were expected", arr.size(), N_MULTIPLEXERS);
-        return false;
-    }
-
-    // validate
-    for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
-    {
-        JsonObject obj = arr[i].as<JsonObject>();
-        if (!obj)
-        {
-            ERROR_PRINTLN("JsonVariant wasn't a JsonObject");
-            return false;
-        }
-    }
-
-    // write validated data
-    for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
-    {
-        JsonObject obj = arr[i].as<JsonObject>();
-        if (!_calibs[i].from_json(&obj))
-        {
-            ERROR_PRINTFLN("Couldn't get calib from json for slot %u", i);
-            return false;
-        }
-    }
-
-    return true;
+    return _load_calibration(&doc);
 }
 
 bool HX711_Mult::save_calibration()
@@ -230,6 +293,7 @@ bool HX711_Mult::save_calibration()
 
     for (size_t i = 0; i < N_MULTIPLEXERS; i++)
     {
+        if (!_calibs[i].populated()) continue;
         JsonDocument sub_doc;
         JsonObject obj = sub_doc.to<JsonObject>();
         _calibs[i].to_json(&obj);

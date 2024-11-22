@@ -1,10 +1,11 @@
 #ifndef _RTC_HELPER_H_
 #define _RTC_HELPER_H_
 
+
+#include <Arduino.h>
 #include "hardware/rtc.h"
 #include "pico/util/datetime.h"
 #include "debug_helper.h"
-#include <ArduinoJson.h>
 
 namespace RTC
 {
@@ -14,15 +15,8 @@ namespace RTC
     }
     bool begin(datetime_t *dt);
 
-    #define RTC_JSON_KEY_YEAR   "y"
-    #define RTC_JSON_KEY_MONTH  "m"
-    #define RTC_JSON_KEY_DAY    "d"
-    #define RTC_JSON_KEY_HOUR   "H"
-    #define RTC_JSON_KEY_MINUTE "M"
-    #define RTC_JSON_KEY_SECOND "S"
-
-    bool set_datetime(JsonDocument *doc);
-    bool set_datetime(const char *json);
+    bool set_datetime(const char *rtc_str);
+    bool set_datetime(int16_t year, int8_t month, int8_t day, int8_t hour, int8_t minute, int8_t second);
 
     bool get_datetime(datetime_t *dt);
 

@@ -27,6 +27,6 @@
 #define SD_MOSI 3
 #define SD_SCK  2
 
-#define STREAM_BUFFER_LEN 1024
+#define STREAM_BUFFER_LEN 4096
 
 #endif /* _DEFS_H_ */
