@@ -1,6 +1,7 @@
 #ifndef _SD_HELPER_H_
 #define _SD_HELPER_H_
 
+#include <Arduino.h>
 #include <SD.h>
 
 namespace SD_Helper

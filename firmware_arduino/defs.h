@@ -14,8 +14,8 @@
 #define HX711_MULT_4   4
 
 #define SERVO_PIN      11
-#define SERVO_MIN_DUTY 800
-#define SERVO_MAX_DUTY 2200
+// #define SERVO_MIN_DUTY 800
+// #define SERVO_MAX_DUTY 2200
 
 #define PUMP_PIN       10
 
@@ -27,6 +27,35 @@
 #define SD_MOSI 3
 #define SD_SCK  2
 
+#define STEPPER_PIN_1 15
+#define STEPPER_PIN_2 14
+#define STEPPER_PIN_3 13
+#define STEPPER_PIN_4 12
+
+
+
+
 #define STREAM_BUFFER_LEN 4096
+
+
+
+
+#define SERVO_MIN_ANGLE 1
+#define SERVO_MAX_ANGLE 179
+#define SERVO_REAL_MIN_ANGLE 0
+#define SERVO_REAL_MAX_ANGLE 180
+#define SERVO_SLOW_DEFAULT_STEPS_PER_ANGLE 5.0
+#define SERVO_SLOW_DEFAULT_DELAY_US_PER_ANGLE 100
+
+
+
+
+#define pwrtwo(x) (1 << (x))
+#define N_MULTIPLEXER_PINS 4
+#define N_MULTIPLEXERS pwrtwo(N_MULTIPLEXER_PINS)
+
+
+
+#define HX_STATS_N 30
 
 #endif /* _DEFS_H_ */

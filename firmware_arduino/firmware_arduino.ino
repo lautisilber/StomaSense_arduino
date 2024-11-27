@@ -7,17 +7,20 @@
 #include "servo_helper.h"
 #include "pump_helper.h"
 #include "rtc_helper.h"
-#include "run.h"
+#include "run_data.h"
 #include "Queues.h"
+#include <stdarg.h>
 
 /// Sensor handler classes ////////////////////////////////////////////////////////////////////////////////////////////////
 BME280I2C bme;
 HX711_Mult hx(HX711_MULT_1, HX711_MULT_2, HX711_MULT_3, HX711_MULT_4, HX711_SCK, HX711_DT);
-ServoRPI servo(SERVO_PIN, SERVO_MIN_DUTY, SERVO_MAX_DUTY);
+ServoRPI servo(SERVO_PIN, true);
+Stepper stepper(STEPPER_PIN_1, STEPPER_PIN_2, STEPPER_PIN_3, STEPPER_PIN_4, Stepper::StepType::HALF);
+Pump pump(PUMP_PIN);
 
 /// Run data //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define N_SCALES 6
-RunData<N_SCALES> run_data;
+RunData run_data;
 
 /// Runtime ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 bool stomasense_setup(const char *rundata_json = NULL);
@@ -25,9 +28,44 @@ void stomasense_loop();
 volatile bool run_stomasense_loop = false;
 
 /// Commands //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// void cmd_error(Stream *stream, const char *cmd, const char *msg)
+// {
+//     stream->printf("{\"err\":true,\"cmd\":\"%s\",\"msg\":\"%s\"}\n", cmd, msg);
+// }
+void cmd_success(Stream *stream, const char *cmd)
+{
+    stream->printf("{\"success\":true,\"cmd\":\"%s\"}\n", cmd);
+}
+void cmd_success(Stream *stream, const char *cmd, JsonDocument *doc)
+{
+    (*doc)["success"] = true;
+    (*doc)["cmd"] = cmd;
+    serializeJson(*doc, *stream);
+    stream->println();
+}
+void cmd_success_va_args(Stream *stream, const char *cmd, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+
+    stream->printf("{\"success\":true,\"cmd\":\"%s\",", cmd);
+    stream->printf(fmt, args);
+    stream->println("}");
+}
+void cmd_error_va_args(Stream *stream, const char *cmd, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+
+    stream->printf("{\"err\":true,\"cmd\":\"%s\",", cmd);
+    stream->printf(fmt, args);
+    stream->println("}");
+
+    va_end(args);
+}
 void cmd_error(Stream *stream, const char *cmd, const char *msg)
 {
-    stream->printf("{\"err\":true,\"cmd\":\"%s\",\"msg\":\"%s\"}\n", cmd, msg);
+    cmd_error_va_args(stream, cmd, "\"msg\":\"%s\"", msg);
 }
 void cmd_received(Stream *stream, const char *cmd)
 {
@@ -38,7 +76,7 @@ void cmd_received(Stream *stream, const char *cmd)
 //     stream->println("OK");
 // });
 SmartCmd cmd_ok("OK", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
-    stream->println("OK");
+    cmd_success(stream, cmd);
 });
 
 SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
@@ -48,10 +86,11 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
     float hum, temp, pres;
     bool res = BME_HELPER::read(&bme, &hum, &temp, &pres);
     const uint8_t err_msg_len = 29;
-    const uint8_t min_size_for_new_entry = 11;
+    const uint8_t min_size_for_new_entry = 9; // 11;
     const uint8_t buf_size = 3*min_size_for_new_entry + 3;
     static_assert(buf_size >= err_msg_len);
-    char buf[buf_size+1] = "{";
+    // char buf[buf_size+1] = "{";
+    char buf[buf_size+1] = {0};
 
     char *buf_last = buf+1;
     const char default_buf[] = "htp";
@@ -95,7 +134,7 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
         
         if (buf_last - buf >= buf_size || *arg == '\0')
         {
-            *(buf_last) = '}';
+            // *(buf_last) = '}';
             break;
         }
         else if (buf_last - buf < buf_size-min_size_for_new_entry)
@@ -108,7 +147,8 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
             goto error;
         }
     }
-    stream->println(buf);
+    // stream->println(buf);
+    cmd_success_va_args(stream, cmd, "%s", buf);
     return;
 
     // error
@@ -158,16 +198,17 @@ void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, bool(
         cmd_error(stream, cmd, buf);
     }
 
-    stream->printf("{\"mean\":%.4f,\"stdev\":%.4f,\"n\":%ul,\"slot\":%u,\"raw\":%s}\n", mean, stdev, resulting_n, slot, raw ? "true" : "false");
+    // stream->printf("{\"mean\":%.4f,\"stdev\":%.4f,\"n\":%ul,\"slot\":%u,\"raw\":%s}\n", mean, stdev, resulting_n, slot, raw ? "true" : "false");
+    cmd_success_va_args(stream, cmd, "\"mean\":%.4f,\"stdev\":%.4f,\"n\":%ul,\"slot\":%u,\"raw\":%s", mean, stdev, resulting_n, slot, raw ? "true" : "false");
 }
-SmartCmd cmd_hx("hx", [](Stream *stream, const SmartCmdArguments *args, const char *cmd){
+SmartCmd cmd_hx("hx", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     hx_cb(stream, args, cmd, &HX711_Mult::read_calib_stats, false);
 });
-SmartCmd cmd_hx_raw("hx_raw", [](Stream *stream, const SmartCmdArguments *args, const char *cmd){
+SmartCmd cmd_hx_raw("hx_raw", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     hx_cb(stream, args, cmd, &HX711_Mult::read_raw_stats, true);
 });
 
-SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args, const char *cmd){
+SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     // first argument is the literal "set", "save"
     // second argument is the json str to set (if first is "set")
 
@@ -185,7 +226,7 @@ SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args
         {
             if (!run_data.save())
             {
-                stream->println("{\"err\":true,\"cmd\":\"rundata\",\"msg\":\"Couldn't save run_data\"}");
+                cmd_error(stream, cmd, "Couldn't save run_data");
                 return;
             }
         }
@@ -199,13 +240,15 @@ SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args
             }
             if (!run_data.set_data(json))
             {
-                stream->printf("{\"err\":true,\"cmd\":\"rundata\",\"msg\":\"Couldn't set run_data with json '%s'\"}\n", json);
+                cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't set run_data\",\"json\":\"%s\"", json);
+                // stream->printf("{\"err\":true,\"cmd\":\"rundata\",\"msg\":\"Couldn't set run_data with json '%s'\"}\n", json);
                 return;
             }
         }
         else
         {
-            stream->printf("{\"err\":true,\"cmd\":\"rundata\",\"msg\":\"Unknown subcommand '%s'\"}\n", sub_cmd);
+            cmd_error_va_args(stream, cmd, "\"msg\":\"Unknown subcommand '%s'\"", sub_cmd);
+            // stream->printf("{\"err\":true,\"cmd\":\"rundata\",\"msg\":\"Unknown subcommand '%s'\"}\n", sub_cmd);
             return;
         }
     }
@@ -217,14 +260,11 @@ SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args
         cmd_error(stream, cmd, "Couldn't get run_data because it is not populated");
         return;
     }
-    obj["success"] = true;
-    obj["cmd"] = cmd;
     obj["sub_cmd"] = sub_cmd;
-    serializeJson(obj, *stream);
-    stream->print("\n");
+    cmd_success(stream, cmd, &doc);
 });
 
-SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const char *cmd){
+SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     // the first argument has the following options
     // - if boolean true: it starts the mainloop with stored rundata
     // - if boolean false: it stops the mainloop if it was running
@@ -243,7 +283,8 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
         if (!b)
         {
             run_stomasense_loop = false;
-            stream->printf("{\"cmd\":\"run\",\"stopped\":true,\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
+            cmd_success_va_args(stream, cmd, "\"stopped\":true,\"state\":%s", run_stomasense_loop ? "true" : "false");
+            // stream->printf("{\"cmd\":\"run\",\"stopped\":true,\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
             return;
         }
         else
@@ -253,6 +294,8 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
                 cmd_error(stream, cmd, "mainloop setup failed");
                 return;
             }
+            cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
+            return;
         }
     }
     else
@@ -266,12 +309,14 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
 
         if (strcmp(s, "state") == 0)
         {
-            stream->printf("{\"cmd\":\"run\",\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
+            cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
+            // stream->printf("{\"cmd\":\"run\",\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
             return;
         }
         else
         {
-            stream->printf("{\"err\":true,\"cmd\":\"run\",\"msg\":\"unknown sub_cmd '%s'\"}\n", s);
+            cmd_error_va_args(stream, cmd, "\"msg\":\"unknown sub_cmd '%s'\"", s);
+            // stream->printf("{\"err\":true,\"cmd\":\"run\",\"msg\":\"unknown sub_cmd '%s'\"}\n", s);
             return;
         }
     }
@@ -279,16 +324,19 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
     cmd_error(stream, cmd, "This shouldn't be reachable");
 });
 
-SmartCmd cmd_calib("calib", [](Stream *stream, const SmartCmdArguments *args, const char *cmd){
+SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     // first argument should be one of the literals "offset", "slope", "save", "get", "set"
-    // second argument is a uin8_t indicating slot to calibrate. if the first was set, the second command is a json array with the calibartion data
-    // third argument must be a boolean stating whether results should be stored to SD if successful. this works the same for "set"
-    // fourth argument is a uint32_t indicating the number of samples to take for the calibration (n)
-    // fifth and sixth arguments are weight and weight_error and will be used only if first argument is "slope"
+    //
+    // if first argument is "set":
+    //  second argument should be a json string containing the calibration
+    //
+    // if first argument is "offset", "slope":
+    //  second argument is a uin8_t indicating slot to calibrate
+    //  third argument is a uint32_t indicating the number of samples to take for the calibration (n)
+    //
+    //  if first argument was "slope":
+    //      fourth and fifth arguments are weight and weight_error
 
-
-    const size_t len_sub_cmd = 6;
-    bool save_to_sd = false;
 
     if (args->N < 1)
     {
@@ -309,12 +357,16 @@ SmartCmd cmd_calib("calib", [](Stream *stream, const SmartCmdArguments *args, co
     }
     else if (strcmp(calib_stage, "save") == 0)
     {
-        save_to_sd = true;
+        if (!hx.save_calibration())
+        {
+            cmd_error(stream, cmd, "Couldn't save calibration");
+            return;
+        }
         goto end;
     }
     else if (strcmp(calib_stage, "set") == 0)
     {
-        if (args->N < 3)
+        if (args->N < 2)
         {
             cmd_error(stream, cmd, "At least 3 arguments needed for setting");
             return;
@@ -325,22 +377,18 @@ SmartCmd cmd_calib("calib", [](Stream *stream, const SmartCmdArguments *args, co
             cmd_error(stream, cmd, "Couldn't cast second argument to const char * while setting (json)");
             return;
         }
-        if (!args->to(2, &save_to_sd))
-        {
-            cmd_error(stream, cmd, "Couldn't cast third argument to bool while setting (save_to_sd)");
-            return;
-        }
         if (!hx.load_calibration(json))
         {
-            stream->printf("{\"err\":true,\"cmd\":\"calib\",\"msg\":\"Couldn't load calibration with json '%s'\"}\n", json);
+            cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't load calibration\",\"json\":\"%s\"", json);
+            // stream->printf("{\"err\":true,\"cmd\":\"hx_calib\",\"msg\":\"Couldn't load calibration\",\"json\":\"%s\"}\n", json);
             return;
         }
         goto end;
     }
 
-    if (args->N < 4)
+    if (args->N < 3)
     {
-        cmd_error(stream, cmd, "At least 4 arguments needed if not saving, setting or getting");
+        cmd_error(stream, cmd, "At least 3 arguments needed if calibrating");
         return;
     }
 
@@ -352,18 +400,13 @@ SmartCmd cmd_calib("calib", [](Stream *stream, const SmartCmdArguments *args, co
     }
     if (slot >= N_MULTIPLEXERS)
     {
-        stream->printf("{\"err\":true,\"cmd\":\"calib\",\"msg\":\"Slot can't be %u when there are %u slots\"}\n", slot, N_MULTIPLEXERS);
-        return;
-    }
-
-    if (!args->to(2, &save_to_sd))
-    {
-        cmd_error(stream, cmd, "Couldn't cast third argument to bool (save_to_sd)");
+        cmd_error_va_args(stream, cmd, "\"msg\":\"Slot can't be %u when there are %u slots\"", slot, N_MULTIPLEXERS);
+        // stream->printf("{\"err\":true,\"cmd\":\"hx_calib\",\"msg\":\"Slot can't be %u when there are %u slots\"}\n", slot, N_MULTIPLEXERS);
         return;
     }
 
     uint32_t n;
-    if (!args->to(3, &n))
+    if (!args->to(2, &n))
     {
         cmd_error(stream, cmd, "Couldn't cast fourth argument to uint32_t (n)");
         return;
@@ -412,6 +455,7 @@ SmartCmd cmd_calib("calib", [](Stream *stream, const SmartCmdArguments *args, co
 
     JsonDocument doc;
     JsonObject obj = doc.to<JsonObject>();
+
     JsonArray calibs = obj["calibs"].to<JsonArray>();
     const HX711Calibration *calib_ptr = hx.get_calibs();
     for (size_t i = 0; i < N_MULTIPLEXERS; i++)
@@ -423,31 +467,12 @@ SmartCmd cmd_calib("calib", [](Stream *stream, const SmartCmdArguments *args, co
             WARN_PRINTFLN("Couldn't retrieve the json from calibration from slot %u", i);
         }
     }
-    obj["cmd"] = cmd;
     obj["sub_cmd"] = calib_stage;
-    if (!save_to_sd)
-    {
-        obj["success"] = true;
-        serializeJson(obj, *stream);
-        return;
-    }
-
-    if (hx.save_calibration())
-    {
-        obj["success"] = true;
-        obj["msg"] = "saved calibration";
-    }
-    else
-    {
-        obj["error"] = true;
-        obj["msg"] = "couldn't save calibration";
-    }
-    serializeJson(obj, *stream);
-    stream->print("\n");
+    cmd_success(stream, cmd, &doc);
 });
 
-SmartCmd cmd_rtc("rtc", [](Stream *stream, const SmartCmdArguments *args, const char *cmd){
-    // if first command present, it is used to set the rtc. Should have format yyyy-mm-dd_HH-MM-SS
+SmartCmd cmd_rtc("rtc", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+    // if first argument present, it is used to set the rtc. Should have format yyyy-mm-dd_HH-MM-SS
 
     const char *rtc_str;
     if (args->N > 0)
@@ -459,17 +484,97 @@ SmartCmd cmd_rtc("rtc", [](Stream *stream, const SmartCmdArguments *args, const 
         }
         if (!RTC::set_datetime(rtc_str))
         {
-            stream->printf("{\"err\":true,\"cmd\":\"rtc\",\"msg\":\"Coudln't set datetime for rtc with rtc_str '%s'\"}\n", rtc_str);
+            cmd_error_va_args(stream, cmd, "\"msg\":\"Coudln't set datetime for rtc with rtc_str '%s'\"", rtc_str);
+            // stream->printf("{\"err\":true,\"cmd\":\"rtc\",\"msg\":\"Coudln't set datetime for rtc with rtc_str '%s'\"}\n", rtc_str);
             return;
         }
     }
 
     rtc_str = RTC::get_timestamp();
-    stream->printf("{\"success\":true,\"cmd\":\"rtc\",\"rtc_init\":%s,\"rtc_str\":\"%s\"}\n", rtc_str ? "true" : "false", rtc_str);
+    cmd_success_va_args(stream, cmd, "\"rtc\",\"rtc_init\":%s,\"rtc_str\":\"%s\"", rtc_str ? "true" : "false", rtc_str);
+    // stream->printf("{\"success\":true,\"cmd\":\"rtc\",\"rtc_init\":%s,\"rtc_str\":\"%s\"}\n", rtc_str ? "true" : "false", rtc_str);
+});
+
+SmartCmd cmd_pos("pos", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+    // without arguments, it gets the current stepper pos and servo angle
+    // with arguments, the first is the stepper position (optional), and the second is the servo angle (optional)
+
+    bool stepper_pos_arg = false;
+    int32_t stepper_pos;
+
+    bool servo_angle_arg = false;
+    uint8_t servo_angle;
+
+    if (args->N > 0)
+    {
+        stepper_pos_arg = args->to(0, &stepper_pos);
+        if (!stepper_pos_arg)
+        {
+            cmd_error(stream, cmd, "Couldn't cast first argument to int32_t (stepper_pos)");
+            return;
+        }
+    }
+    if (args->N > 1)
+    {
+        servo_angle_arg = args->to(1, &servo_angle);
+        if (servo_angle_arg)
+        {
+            cmd_error(stream, cmd, "Couldn't cast second argument to uint8_t (servo_angle)");
+            return;
+        }
+    }
+
+    cmd_received(stream, cmd);
+
+    if (servo_angle_arg)
+    {
+        if (!servo.set_angle_slow_blocking(servo_angle))
+        {
+            cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't set servo to angle %u\"", servo_angle);
+            // stream->printf("{\"err\":true,\"cmd\":\"pos\",\"msg\":\"Couldn't set servo to angle %u\"}\n", servo_angle);
+            return;
+        }
+    }
+
+    if (stepper_pos_arg)
+    {
+        // if (!)
+        // {
+        //     stream->printf("{\"err\":true,\"cmd\":\"pos\",\"msg\":\"Couldn't move stepper to pos %li\"}\n", stepper_pos);
+        //     return;
+        // }
+        stepper.move_to_pos_blocking(stepper_pos, true);
+    }
+
+    cmd_success_va_args(stream, cmd, "\"pos\",\"stepper\":%li,\"servo\":%u", stepper.get_curr_pos(), servo.get_curr_angle());
+    // stream->printf("{\"success\":true,\"cmd\":\"pos\",\"stepper\":%li,\"servo\":%u}\n", stepper.get_curr_pos(), servo.get_curr_angle());
+});
+
+SmartCmd cmd_stp_force("stp_force", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+    // returns stepper pos at the end of the command
+    // if a argument is provided (int32_t), the stepper pos will be updated to this new value, without actually moving
+    // moving the stepper
+
+
+    if (args->N != 1)
+    {
+        cmd_error(stream, cmd, "Number of arguments isn't 1. ");
+    }
+
+    int32_t new_pos;
+    if (!args->to(0, &new_pos))
+    {
+        cmd_error(stream, cmd, "Couldn't cast first arg to int32_t (new_pos)");
+        return;
+    }
+    // set_curr_pos_forced
+    stepper.set_curr_pos_forced(new_pos);
+
+    cmd_success_va_args(stream, cmd, "\"stepper\":%li", new_pos);
 });
 
 const SmartCmdBase *cmds[] = {
-    &cmd_ok, &cmd_bme, &cmd_hx, &cmd_hx_raw, &cmd_run, &cmd_rundata, &cmd_calib, &cmd_rtc
+    &cmd_ok, &cmd_bme, &cmd_hx, &cmd_hx_raw, &cmd_run, &cmd_rundata, &cmd_calib, &cmd_rtc, &cmd_pos, &cmd_stp_force
 };
 
 SmartComm<ARRAY_LENGTH(cmds)> sc(cmds, Serial);
@@ -481,6 +586,7 @@ void setup() {
     BME_HELPER::begin(&bme, BME280_SDA_PIN, BME280_SCL_PIN);
 
     hx.begin();
+    stepper.begin();
     RTC::begin();
 }
 
@@ -510,7 +616,50 @@ void stomasense_loop()
 {
     static unsigned long bme_last_time = millis();
     static unsigned long hx_last_time = millis();
-    static uint8_t curr_scale = 0;
+    static uint8_t curr_slot = 0;
 
-    
+    const ScalePosition *pos;
+    ScaleProtocol *protocol;
+
+    // wrap around
+    if (curr_slot >= N_MULTIPLEXERS)
+        curr_slot = 0;
+
+    // check if current slot is in use
+    if (!(run_data.get_scales_in_use()[curr_slot++]))
+        return;
+
+    // get data
+    if (!run_data.get_slot_data(curr_slot, pos, protocol))
+    {
+        ERROR_PRINTFLN("Couldn't get data for slot in use %u. Doing nothing", curr_slot > 0 ? curr_slot - 1 : N_MULTIPLEXERS-1);
+        return;
+    }
+
+    // get weight
+    // bool read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    float mean, stdev;
+    uint32_t resulting_n;
+    if (!hx.read_calib_stats(curr_slot, HX_STATS_N, &mean, &stdev, &resulting_n))
+    {
+        ERROR_PRINTFLN("Couldn't read calib stats for slot %u", curr_slot);
+        return;
+    }
+
+    // tick protocol
+    // void tick(float weight, bool *should_water, bool *finished_protocol, uint8_t *curr_step=NULL);
+    bool should_water, finished_protocol;
+    uint8_t curr_step;
+    protocol->tick(mean, &should_water, &finished_protocol, &curr_step);
+
+    // water if necessary
+    // TODO: make this async! (use queues)
+    if (should_water)
+    {
+        servo.set_angle((SERVO_MAX_ANGLE - SERVO_MIN_ANGLE) / 2); // go to middle
+        stepper.move_to_pos_blocking(pos->stepper);
+        servo.set_angle_slow_blocking(pos->servo);
+        pump.pump_blocking(pos->pump_intensity, pos->pump_time_us);
+        servo.detach();
+    }
 }

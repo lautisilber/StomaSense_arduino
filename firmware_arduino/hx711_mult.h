@@ -4,14 +4,12 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include "hx711.h"
+#include "defs.h"
 
 #ifndef HX711_DEFAULT_TIMEOUT_MS
 #define HX711_DEFAULT_TIMEOUT_MS 5000
 #endif
 
-#define pwrtwo(x) (1 << (x))
-#define N_MULTIPLEXER_PINS 4
-#define N_MULTIPLEXERS pwrtwo(N_MULTIPLEXER_PINS)
 #define HX711_SAVEFILE "HXCALIB.JSN"
 
 #if N_MULTIPLEXERS <= 0
@@ -25,10 +23,9 @@ private:
     const pin_size_t _mult_pin_1, _mult_pin_2, _mult_pin_3, _mult_pin_4;
     int8_t _curr_slot = -1;
     HX711Calibration _calibs[N_MULTIPLEXERS];
+    bool _set_calibs[N_MULTIPLEXERS];
 
     void _set_slot(uint8_t slot);
-
-    bool _load_calibration(JsonDocument *doc);
 
 public:
     HX711_Mult(pin_size_t mult_pin_1, pin_size_t mult_pin_2, pin_size_t mult_pin_3, pin_size_t mult_pin_4,
@@ -50,9 +47,11 @@ public:
 
     bool load_calibration();
     bool load_calibration(const char *json);
+    bool load_calibration(JsonDocument *doc);
     bool save_calibration();
 
     inline const HX711Calibration *get_calibs() const { return (const HX711Calibration *)_calibs; }
+    inline const bool *get_set_calibs() const { return (const bool *)_set_calibs; }
 };
 
 #endif /* _HX711_MULT_H_ */

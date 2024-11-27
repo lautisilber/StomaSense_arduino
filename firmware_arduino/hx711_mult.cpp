@@ -1,4 +1,6 @@
+// #include <sys/_stdint.h>
 #include "hx711_mult.h"
+
 #include "debug_helper.h"
 #include "sd_helper.h"
 #include "algos.h"
@@ -166,8 +168,23 @@ bool HX711_Mult::power_up(uint8_t slot)
 }
 
 
-bool HX711_Mult::_load_calibration(JsonDocument *doc)
+bool HX711_Mult::load_calibration(JsonDocument *doc)
 {
+    /*
+     It takes in a JsonDocument with the following structure
+     [
+        {
+            "r": <slot:uint8_t>,
+            "o": <offset:float>,
+            "p": <offset_error:float>,
+            "s": <slope:float>,
+            "t": <slope_error:float>
+        },
+        ...
+     ]
+
+     And populates de calibration array so that _calibs[x] points to the HX711Calibration for the slot x
+     */
     JsonArray arr = doc->as<JsonArray>();
     if (!arr)
     {
@@ -175,75 +192,47 @@ bool HX711_Mult::_load_calibration(JsonDocument *doc)
         return false;
     }
 
-    // if (arr.size() != N_MULTIPLEXERS)
-    // {
-    //     ERROR_PRINTFLN("Couldn't load calibrations: the save file has %u entries but %u were expected", arr.size(), N_MULTIPLEXERS);
-    //     return false;
-    // }
-
-    // // validate
-    // for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
-    // {
-    //     JsonObject obj = arr[i].as<JsonObject>();
-    //     if (!obj)
-    //     {
-    //         ERROR_PRINTLN("JsonVariant wasn't a JsonObject");
-    //         return false;
-    //     }
-    // }
-
-    // // write validated data
-    // for (size_t i = 0; i < N_MULTIPLEXERS; ++i)
-    // {
-    //     JsonObject obj = arr[i].as<JsonObject>();
-    //     if (!_calibs[i].from_json(&obj))
-    //     {
-    //         ERROR_PRINTFLN("Couldn't get calib from json for slot %u", i);
-    //         return false;
-    //     }
-    // }
-
-    for (size_t i = 0; i < arr.size(); i++)
+    size_t for_len = arr.size();
+    if (for_len > N_MULTIPLEXERS)
     {
-        if (i == N_MULTIPLEXERS)
-        {
-            WARN_PRINTLN("Stopped loading calibration array elements to avoid buffer overflow");
-            break;
-        }
+        WARN_PRINTFLN("Calibrations array has %lu elements but there are only %lu multiplexed scales. Will only load first %lu calibrations",
+        for_len, N_MULTIPLEXERS, N_MULTIPLEXERS);
+        for_len = N_MULTIPLEXERS;
+    }
+
+    // set_calibs keeps track of which slots have already been assigned a calibration
+    memset(_set_calibs, false, N_MULTIPLEXERS * sizeof(bool));
+
+    for (size_t i = 0; i < for_len; i++)
+    {
         JsonObject obj = arr[i].as<JsonObject>();
         if (!obj)
         {
             WARN_PRINTFLN("The element %lu of the calibration array couldn't be loaded because it wasn't a JsonObject", i);
             continue;
         }
-        if (!_calibs[i].from_json(&obj))
+
+        // check slot
+        if (!obj[HX711_CALIBRATION_JSON_KEY_SLOT].is<uint8_t>())
         {
-            WARN_PRINTFLN("Couldn't get calib from json for slot %u", i);
+            WARN_PRINTFLN("The element %lu of the calibration array didn't have the key '%s' for the slot, so it will be skipped", i, HX711_CALIBRATION_JSON_KEY_SLOT);
             continue;
         }
-    }
-
-    // get map_calibs_slots and validate slot values
-    int8_t map_calibs_slots[N_MULTIPLEXERS];
-    memset(map_calibs_slots, -1, N_MULTIPLEXERS);
-    for (size_t i = 0; i < N_MULTIPLEXERS; i++)
-    {
-        if (!_calibs[i].populated()) break;
-        if (_calibs[i].slot > N_MULTIPLEXERS)
+        uint8_t slot = obj[HX711_CALIBRATION_JSON_KEY_SLOT].as<uint8_t>();
+        if (_set_calibs[slot])
         {
-            WARN_PRINTFLN("Calibration number %lu has slot %u, but there are %u slots", i, _calibs[i].slot, N_MULTIPLEXERS);
-            // dehabilitate this particular calib
-            _calibs[i].set_offset = false;
-            _calibs[i].set_slope = false;
+            WARN_PRINTFLN("The element %lu of the calibration array has the slot %u, but that slot has already been assigned a calibration. overriding with this calibration",
+            i, slot);
         }
-        else
-        {
-            map_calibs_slots[i] = _calibs[i].slot;
-        }
-    }
 
-    // sort _calibs to match their slot
-    sort_with_index_array<HX711Calibration, int8_t, N_MULTIPLEXERS>(_calibs, map_calibs_slots);
+        if (!_calibs[slot].from_json(&obj))
+        {
+            WARN_PRINTFLN("Couldn't get calib from json for slot %u", slot);
+            continue;
+        }
+
+        _set_calibs[slot] = true;
+    }
 
     return true;
 }
@@ -269,7 +258,7 @@ bool HX711_Mult::load_calibration()
         return false;
     }
 
-    return _load_calibration(&doc);
+    return load_calibration(&doc);
 }
 
 bool HX711_Mult::load_calibration(const char *json)
@@ -283,7 +272,7 @@ bool HX711_Mult::load_calibration(const char *json)
         return false;
     }
 
-    return _load_calibration(&doc);
+    return load_calibration(&doc);
 }
 
 bool HX711_Mult::save_calibration()
