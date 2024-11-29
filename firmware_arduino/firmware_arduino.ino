@@ -639,10 +639,112 @@ void loop() {
 }
 
 
+/// logging ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define N_READINGS_BEFORE_SAVING_TO_SD 50
+constexpr uint32_t max_file_number = ULONG_MAX;
+struct LogData
+{
+    const char *timestamp;
+    uint8_t slot;
+    float mean, stdev;
+    uint32_t resulting_n;
+    float hum, temp, pres;
+    bool watered, finished_protocol;
+    uint8_t protocol_step;
+};
+
+QueueFIFO<LogData, N_READINGS_BEFORE_SAVING_TO_SD> log_data_queue(false);
+
+// template <typename T> T sgn(T val) {
+//     return (T(0) < val) - (val < T(0));
+// }
+bool log_to_sd()
+{
+    static uint32_t curr_file_nr = 0;
+    if (curr_file_nr >= max_file_number) return false;
+
+    const size_t fname_len = 12;
+    char fname[fname_len+1];
+    snprintf(fname, fname_len, "%08x.TXT", curr_file_nr);
+    fname[fname_len] = '\0';
+
+    bool res = false;
+    bool next_file = false;
+
+    File file;
+    if (!SD_Helper::open_write(&file, fname))
+    {
+        ERROR_PRINTFLN("Couldn't open file '%s' for logging", fname);
+        goto end;
+    }
+
+    if (!file.println("time,slot,mean,stdev,n_readings,hum,temp,pres,watered,finished_protocol,protocol_step"))
+    {
+        ERROR_PRINTFLN("Couldn't write header on log flie '%s'", fname);
+        goto end;
+    }
+    
+    LogData ld;
+    while (log_data_queue.available())
+    {
+        if (!log_data_queue.pop(&ld))
+        {
+            ERROR_PRINTLN("Error popping log data from queue");
+            goto end;
+        }
+
+
+        if (!file.write(ld.timestamp))
+        {
+            ERROR_PRINTFLN("Couldn't write timestamp to file '%s'", fname);
+            next_file = true;
+            goto end;
+        }
+
+        const float max_float = 100000000000;
+        const size_t buf_len = 77;
+        char buf[buf_len+1];
+        snprintf(buf, buf_len, ",%u,%f10.4,%f10.4,%lu,%3.3f,%3.3f,%4.2f,%u,%u,%u",
+            ld.slot,
+            fmod(ld.mean, max_float),
+            fmod(ld.stdev, max_float),
+            ld.resulting_n % 100000000,
+            fmod(ld.hum, 1000),
+            fmod(ld.temp, 1000),
+            fmod(ld.pres, 10000),
+            ld.watered,
+            ld.finished_protocol,
+            ld.protocol_step
+        );
+        if (!file.println(buf))
+        {
+            ERROR_PRINTFLN("Couldn't write to file '%s'", fname);
+            next_file = true;
+            goto end;
+        }
+    }
+
+    next_file = true;
+    res = true;
+
+    end:
+    if (!SD_Helper::close(&file))
+    {
+        ERROR_PRINTFLN("Couldn't close file '%s", fname);
+        res = false;
+    }
+    if (next_file)
+        ++curr_file_nr;
+    return res;
+}
+
+
 bool stomasense_setup(const char *rundata_json)
 {
     if (rundata_json)
     {
+
         if (!run_data.set_data(rundata_json))
         {
             ERROR_PRINTFLN("Coudln't set data for run_data with json '%s'", rundata_json);
@@ -651,6 +753,7 @@ bool stomasense_setup(const char *rundata_json)
     }
     return true;
 }
+
 
 void stomasense_loop()
 {
@@ -682,21 +785,23 @@ void stomasense_loop()
         return;
     }
 
+    LogData ld = {.slot = curr_slot};
+
     // get weight
+    float mean;
     // bool read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-    float mean, stdev;
-    uint32_t resulting_n;
-    if (!hx.read_calib_stats(curr_slot, HX_STATS_N, &mean, &stdev, &resulting_n))
+    if (!hx.read_calib_stats(curr_slot, HX_STATS_N, &mean, &ld.stdev, &ld.resulting_n))
     {
         ERROR_PRINTFLN("Couldn't read calib stats for slot %u", curr_slot);
         return;
     }
+    ld.mean = mean;
 
     // tick protocol
     // void tick(float weight, bool *should_water, bool *finished_protocol, uint8_t *curr_step=NULL);
-    bool should_water, finished_protocol;
-    uint8_t curr_step;
-    protocol->tick(mean, &should_water, &finished_protocol, &curr_step);
+    bool should_water;
+    protocol->tick(mean, &should_water, &ld.finished_protocol, &ld.protocol_step);
+    ld.watered = should_water;
 
     // water if necessary
     // TODO: make this async! (use queues)
@@ -707,5 +812,14 @@ void stomasense_loop()
         servo.set_angle_slow_blocking(pos->servo);
         pump.pump_blocking(pos->pump_intensity, pos->pump_time_us);
         servo.detach();
+    }
+
+    log_data_queue.push(&ld);
+    if (log_data_queue.full())
+    {
+        if (!log_to_sd())
+        {
+            ERROR_PRINTLN("Couldn't log entries to SD");
+        }
     }
 }

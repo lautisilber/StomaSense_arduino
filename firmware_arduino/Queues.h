@@ -124,6 +124,7 @@ public:
     inline size_t buffer_size() const { return N; }
     inline size_t size() const { return _size; }
     inline bool empty() const { return size() == 0; }
+    inline bool available() const { return size() > 0; }
     inline bool full() const { return size() == N; }
     inline void clean() { _back = _front; }
 };
