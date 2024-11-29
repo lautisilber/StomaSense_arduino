@@ -9,6 +9,8 @@
 #include "rtc_helper.h"
 #include "run_data.h"
 #include "Queues.h"
+#include "eeprom_helper.h"
+
 #include <stdarg.h>
 
 /// Sensor handler classes ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -17,6 +19,17 @@ HX711_Mult hx(HX711_MULT_1, HX711_MULT_2, HX711_MULT_3, HX711_MULT_4, HX711_SCK,
 ServoRPI servo(SERVO_PIN, true);
 Stepper stepper(STEPPER_PIN_1, STEPPER_PIN_2, STEPPER_PIN_3, STEPPER_PIN_4, Stepper::StepType::HALF);
 Pump pump(PUMP_PIN);
+
+bool init_peripherals_flag = false;
+void begin_peripherals()
+{
+    if (init_peripherals_flag) return;
+    BME_HELPER::begin(&bme, BME280_SDA_PIN, BME280_SCL_PIN);
+    hx.begin();
+    stepper.begin();
+    RTC::begin();
+    init_peripherals_flag = true;
+}
 
 /// Run data //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define N_SCALES 6
@@ -72,9 +85,6 @@ void cmd_received(Stream *stream, const char *cmd)
     stream->printf("{\"cmd\":\"%s\",\"processing\":true}\n", cmd);
 }
 
-// SMART_CMD_CREATE_RAM(cmdOk, "OK", [](Stream *stream, const SmartCmdArguments *args, const char *cmd){
-//     stream->println("OK");
-// });
 SmartCmd cmd_ok("OK", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     cmd_success(stream, cmd);
 });
@@ -84,6 +94,7 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
     // example: bme ht -> returns humidity and temperature
 
     float hum, temp, pres;
+    begin_peripherals();
     bool res = BME_HELPER::read(&bme, &hum, &temp, &pres);
     const uint8_t err_msg_len = 29;
     const uint8_t min_size_for_new_entry = 9; // 11;
@@ -183,11 +194,12 @@ void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, bool(
         return;
     }
 
-    stream->println("rcv");
+    cmd_received(stream, cmd);
 
     float mean;
     float stdev;
     uint32_t resulting_n;
+    begin_peripherals();
     bool res = ((hx).*(hx_read))(slot, n_stat, &mean, &stdev, &resulting_n, timeout_ms);
 
     if (!res)
@@ -282,6 +294,7 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
         // is boolean
         if (!b)
         {
+            // stop
             run_stomasense_loop = false;
             cmd_success_va_args(stream, cmd, "\"stopped\":true,\"state\":%s", run_stomasense_loop ? "true" : "false");
             // stream->printf("{\"cmd\":\"run\",\"stopped\":true,\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
@@ -289,11 +302,14 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
         }
         else
         {
+            // run
             if (!stomasense_setup())
             {
                 cmd_error(stream, cmd, "mainloop setup failed");
                 return;
             }
+            begin_peripherals();
+            run_stomasense_loop = true;
             cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
             return;
         }
@@ -309,6 +325,7 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
 
         if (strcmp(s, "state") == 0)
         {
+            // get state
             cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
             // stream->printf("{\"cmd\":\"run\",\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
             return;
@@ -343,6 +360,8 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
         cmd_error(stream, cmd, "At least 1 argument needed");
         return;
     }
+
+    begin_peripherals();
 
     const char *calib_stage;
     if (!args->to(0, calib_stage))
@@ -524,6 +543,7 @@ SmartCmd cmd_pos("pos", [](Stream *stream, const SmartCmdArguments *args, const 
         }
     }
 
+    begin_peripherals();
     cmd_received(stream, cmd);
 
     if (servo_angle_arg)
@@ -573,8 +593,34 @@ SmartCmd cmd_stp_force("stp_force", [](Stream *stream, const SmartCmdArguments *
     cmd_success_va_args(stream, cmd, "\"stepper\":%li", new_pos);
 });
 
+SmartCmd cmd_stp_flag("std_flag", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+    // this command should be used to either read if the moving flag was left set, and eventually reset it
+    // to reset, state first argument as boolean true
+
+    bool save_ok = stepper.is_save_state_ok();
+    bool reset_arg = false;
+    bool reset;
+
+    if (args->N > 0)
+    {
+        reset_arg = args->to(0, &reset);
+        if (!reset_arg)
+        {
+            cmd_error(stream, cmd, "Couldn't cast argument 0 to bool (reset)");
+            return;
+        }
+        if (reset)
+            stepper.reset_save_state();
+    }
+
+    cmd_success_va_args(stream, cmd, "\"state_ok\":%s,\"state_reset\":",
+        save_ok ? "true" : "false",
+        reset_arg ? (reset ? "true" : "false") : "false"
+    );
+});
+
 const SmartCmdBase *cmds[] = {
-    &cmd_ok, &cmd_bme, &cmd_hx, &cmd_hx_raw, &cmd_run, &cmd_rundata, &cmd_calib, &cmd_rtc, &cmd_pos, &cmd_stp_force
+    &cmd_ok, &cmd_bme, &cmd_hx, &cmd_hx_raw, &cmd_run, &cmd_rundata, &cmd_calib, &cmd_rtc, &cmd_pos, &cmd_stp_force, &cmd_stp_flag
 };
 
 SmartComm<ARRAY_LENGTH(cmds)> sc(cmds, Serial);
@@ -582,12 +628,6 @@ SmartComm<ARRAY_LENGTH(cmds)> sc(cmds, Serial);
 void setup() {
     Serial.begin(115200);
     Serial.println("StomaSense v1.0.0");
-
-    BME_HELPER::begin(&bme, BME280_SDA_PIN, BME280_SCL_PIN);
-
-    hx.begin();
-    stepper.begin();
-    RTC::begin();
 }
 
 
@@ -614,6 +654,12 @@ bool stomasense_setup(const char *rundata_json)
 
 void stomasense_loop()
 {
+    if (!init_peripherals_flag)
+    {
+        ERROR_PRINTLN("Init peripherals flag not set");
+        return;
+    }
+
     static unsigned long bme_last_time = millis();
     static unsigned long hx_last_time = millis();
     static uint8_t curr_slot = 0;

@@ -29,20 +29,27 @@ protected:
     int32_t _curr_pos = 0;
 
 private:
-    stepper_make_step_t _make_step;
+    stepper_make_step_t __make_step;
+    bool _begin_flag = false;
 
 public:
     Stepper(uint8_t pin_1, uint8_t pin_2, uint8_t pin_3, uint8_t pin_4, StepType step_type);
-    void begin();
+    bool begin();
     void release_stepper();
     void set_step_type(StepType step_type);
 
-    void make_step(StepperStepDir dir);
     void move_steps_blocking(int32_t steps, bool release=true);
     void move_to_pos_blocking(int32_t pos, bool release=true);
 
     inline int32_t get_curr_pos() const { return _curr_pos; }
     inline void set_curr_pos_forced(int32_t new_pos) { _curr_pos = new_pos; }
+
+    bool is_save_state_ok() const;
+    void reset_save_state();
+
+public:
+    // should never be called by the user!
+    void _make_step(StepperStepDir dir);
 };
 
 /// async
@@ -55,6 +62,9 @@ public:
     bool move_to_pos_async(int32_t pos, bool release=true);
     void move_steps_async_force(int32_t steps, bool release=true);
     void move_to_pos_async_force(int32_t pos, bool release=true);
+
+    bool is_save_state_ok() const;
+    void reset_save_state();
 };
 
 #endif /* _STEPPER_H_ */

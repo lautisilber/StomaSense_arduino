@@ -1,6 +1,6 @@
 #include "servo_helper.h"
-#include "debug_helper.h"
 
+#include "debug_helper.h"
 
 static_assert(SERVO_REAL_MIN_ANGLE <= SERVO_MIN_ANGLE, "macro SERVO_REAL_MIN_ANGLE cannot be greater than SERVO_MIN_ANGLE");
 static_assert(SERVO_REAL_MAX_ANGLE >= SERVO_MAX_ANGLE, "macro SERVO_REAL_MIN_ANGLE cannot be greater than SERVO_MIN_ANGLE");

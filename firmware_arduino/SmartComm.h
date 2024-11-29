@@ -208,9 +208,9 @@ public:
 #ifdef PROGMEM
 #define SMART_CMD_CREATE(className, command, callback) \
     const PROGMEM char __##className##_pstr_cmd[] = command; \
-    SmartCmdF className(__##className##_pstr_cmd, callback);
+    SmartCmdF className(__##className##_pstr_cmd, (callback));
 #else
-#define SMART_CMD_CREATE(className, command, callback) SMART_CMD_CREATE_RAM(className, command, callback)
+#define SMART_CMD_CREATE(className, command, callback) SMART_CMD_CREATE_RAM(className, command, (callback))
 #endif
 
 /// SmartComm /////////////////////////////////////////////////////////////////////////////////////
