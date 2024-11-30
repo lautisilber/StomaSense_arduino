@@ -57,6 +57,9 @@ public:
 class StepperAsync : public Stepper
 {
 public:
+    StepperAsync(uint8_t pin_1, uint8_t pin_2, uint8_t pin_3, uint8_t pin_4, StepType step_type)
+    : Stepper(pin_1, pin_2, pin_3, pin_4, step_type) {}
+
     bool running() const;
     bool move_steps_async(int32_t steps, bool release=true);
     bool move_to_pos_async(int32_t pos, bool release=true);

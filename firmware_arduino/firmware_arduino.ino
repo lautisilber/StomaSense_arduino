@@ -10,6 +10,8 @@
 #include "run_data.h"
 #include "Queues.h"
 #include "eeprom_helper.h"
+#include "SmartSortArray.h"
+#include "PicoVector.h"
 
 #include <stdarg.h>
 
@@ -17,7 +19,7 @@
 BME280I2C bme;
 HX711_Mult hx(HX711_MULT_1, HX711_MULT_2, HX711_MULT_3, HX711_MULT_4, HX711_SCK, HX711_DT);
 ServoRPI servo(SERVO_PIN, true);
-Stepper stepper(STEPPER_PIN_1, STEPPER_PIN_2, STEPPER_PIN_3, STEPPER_PIN_4, Stepper::StepType::HALF);
+StepperAsync stepper(STEPPER_PIN_1, STEPPER_PIN_2, STEPPER_PIN_3, STEPPER_PIN_4, Stepper::StepType::HALF);
 Pump pump(PUMP_PIN);
 
 bool init_peripherals_flag = false;
@@ -38,6 +40,7 @@ RunData run_data;
 /// Runtime ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 bool stomasense_setup(const char *rundata_json = NULL);
 void stomasense_loop();
+void water_loop();
 volatile bool run_stomasense_loop = false;
 
 /// Commands //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -634,7 +637,10 @@ void setup() {
 void loop() {
     sc.tick();
     if (run_stomasense_loop)
+    {
         stomasense_loop();
+        water_loop();
+    }
     delay(250);
 }
 
@@ -755,11 +761,20 @@ bool stomasense_setup(const char *rundata_json)
 }
 
 
+#define WATERING_QUEUE_MAX_SIZE 10
+PicoVector<ScalePosition, WATERING_QUEUE_MAX_SIZE> water_queue;
+
+
 void stomasense_loop()
 {
     if (!init_peripherals_flag)
     {
         ERROR_PRINTLN("Init peripherals flag not set");
+        return;
+    }
+    if (water_queue.full())
+    {
+        INFO_PRINTLN("Waiting for water queue to empty");
         return;
     }
 
@@ -805,13 +820,17 @@ void stomasense_loop()
 
     // water if necessary
     // TODO: make this async! (use queues)
+    // if (should_water)
+    // {
+    //     servo.set_angle((SERVO_MAX_ANGLE - SERVO_MIN_ANGLE) / 2); // go to middle
+    //     stepper.move_to_pos_blocking(pos->stepper);
+    //     servo.set_angle_slow_blocking(pos->servo);
+    //     pump.pump_blocking(pos->pump_intensity, pos->pump_time_us);
+    //     servo.detach();
+    // }
     if (should_water)
     {
-        servo.set_angle((SERVO_MAX_ANGLE - SERVO_MIN_ANGLE) / 2); // go to middle
-        stepper.move_to_pos_blocking(pos->stepper);
-        servo.set_angle_slow_blocking(pos->servo);
-        pump.pump_blocking(pos->pump_intensity, pos->pump_time_us);
-        servo.detach();
+        water_queue.push_back(pos);
     }
 
     log_data_queue.push(&ld);
@@ -821,5 +840,33 @@ void stomasense_loop()
         {
             ERROR_PRINTLN("Couldn't log entries to SD");
         }
+    }
+}
+
+void water_loop()
+{
+    static bool new_position = true;
+    static ScalePosition pos;
+    if (!water_queue.available() || stepper.running())
+    {
+        return;
+    }
+    
+    if (new_position)
+    {
+        // init movement
+        water_queue.pop_front(&pos);
+
+        servo.set_angle((SERVO_MAX_ANGLE - SERVO_MIN_ANGLE) / 2); // go to middle
+        stepper.move_to_pos_async(pos.stepper);
+        new_position = false;
+    }
+    else
+    {
+        // finish movement
+        servo.set_angle_slow_blocking(pos.servo);
+        pump.pump_blocking(pos.pump_intensity, pos.pump_time_us);
+        servo.detach();
+        new_position = true;
     }
 }
