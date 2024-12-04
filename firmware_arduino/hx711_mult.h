@@ -35,24 +35,26 @@ public:
 
     void set_slot(uint8_t slot);
 
-    bool read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-    bool read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-    bool read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    hx711_return_code_t read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    hx711_return_code_t read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    hx711_return_code_t read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
 
-    bool calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-    bool calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    hx711_return_code_t calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
+    hx711_return_code_t calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
 
-    bool power_down(uint8_t slot, bool wait_until_power_off=false);
-    bool power_up(uint8_t slot);
+    hx711_return_code_t power_down(uint8_t slot, bool wait_until_power_off=false);
+    hx711_return_code_t power_up(uint8_t slot);
 
-    bool load_calibration();
-    bool load_calibration(const char *json);
-    bool load_calibration(JsonDocument *doc);
-    bool save_calibration();
+    hx711_return_code_t load_calibration();
+    hx711_return_code_t load_calibration(const char *json);
+    hx711_return_code_t load_calibration(JsonDocument *doc);
+    hx711_return_code_t save_calibration();
 
     inline const HX711Calibration *get_calibs() const { return (const HX711Calibration *)_calibs; }
     inline const bool *get_set_calibs() const { return (const bool *)_set_calibs; }
 };
+
+extern const char *hx711_mult_get_code_str(hx711_return_code_t code, bool *known=NULL);
 
 #endif /* _HX711_MULT_H_ */
 

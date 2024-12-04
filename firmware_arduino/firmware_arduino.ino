@@ -12,11 +12,10 @@
 #include "eeprom_helper.h"
 #include "SmartSortArray.h"
 #include "PicoVector.h"
-
-#include <stdarg.h>
+#include "cmd_helper.h"
 
 /// Sensor handler classes ////////////////////////////////////////////////////////////////////////////////////////////////
-BME280I2C bme;
+BME280I2C bme(BME_Helper::default_settings);
 HX711_Mult hx(HX711_MULT_1, HX711_MULT_2, HX711_MULT_3, HX711_MULT_4, HX711_SCK, HX711_DT);
 ServoRPI servo(SERVO_PIN, true);
 StepperAsync stepper(STEPPER_PIN_1, STEPPER_PIN_2, STEPPER_PIN_3, STEPPER_PIN_4, Stepper::StepType::HALF);
@@ -26,7 +25,7 @@ bool init_peripherals_flag = false;
 void begin_peripherals()
 {
     if (init_peripherals_flag) return;
-    BME_HELPER::begin(&bme, BME280_SDA_PIN, BME280_SCL_PIN);
+    BME_Helper::begin(&bme, BME280_SDA_PIN, BME280_SCL_PIN);
     hx.begin();
     stepper.begin();
     RTC::begin();
@@ -48,48 +47,13 @@ volatile bool run_stomasense_loop = false;
 // {
 //     stream->printf("{\"err\":true,\"cmd\":\"%s\",\"msg\":\"%s\"}\n", cmd, msg);
 // }
-void cmd_success(Stream *stream, const char *cmd)
-{
-    stream->printf("{\"success\":true,\"cmd\":\"%s\"}\n", cmd);
-}
-void cmd_success(Stream *stream, const char *cmd, JsonDocument *doc)
-{
-    (*doc)["success"] = true;
-    (*doc)["cmd"] = cmd;
-    serializeJson(*doc, *stream);
-    stream->println();
-}
-void cmd_success_va_args(Stream *stream, const char *cmd, const char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
 
-    stream->printf("{\"success\":true,\"cmd\":\"%s\",", cmd);
-    stream->printf(fmt, args);
-    stream->println("}");
-}
-void cmd_error_va_args(Stream *stream, const char *cmd, const char *fmt, ...)
+void cmd_unknown(Stream *stream, const char *cmd)
 {
-    va_list args;
-    va_start(args, fmt);
-
-    stream->printf("{\"err\":true,\"cmd\":\"%s\",", cmd);
-    stream->printf(fmt, args);
-    stream->println("}");
-
-    va_end(args);
+    CMD_Helper::cmd_error_with_trail(stream, cmd, "\"unknown\":true");
 }
-void cmd_error(Stream *stream, const char *cmd, const char *msg)
-{
-    cmd_error_va_args(stream, cmd, "\"msg\":\"%s\"", msg);
-}
-void cmd_received(Stream *stream, const char *cmd)
-{
-    stream->printf("{\"cmd\":\"%s\",\"processing\":true}\n", cmd);
-}
-
 SmartCmd cmd_ok("OK", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
-    cmd_success(stream, cmd);
+    CMD_Helper::cmd_success(stream, cmd);
 });
 
 SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
@@ -98,17 +62,22 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
 
     float hum, temp, pres;
     begin_peripherals();
-    bool res = BME_HELPER::read(&bme, &hum, &temp, &pres);
+    bool res = BME_Helper::read(&bme, &hum, &temp, &pres);
     const uint8_t err_msg_len = 29;
-    const uint8_t min_size_for_new_entry = 9; // 11;
+    const uint8_t min_size_for_new_entry = 11; // 11;
     const uint8_t buf_size = 3*min_size_for_new_entry + 3;
     static_assert(buf_size >= err_msg_len);
     // char buf[buf_size+1] = "{";
     char buf[buf_size+1] = {0};
 
-    char *buf_last = buf+1;
+    char *buf_last = buf;
     const char default_buf[] = "htp";
-    const char *arg;
+    const char *arg = default_buf;
+
+    // this is a bit mask where the first bit is 1 only if 'h' has been processed,
+    // the second is only 1 if 't' has been processed and the same for the third bit and 'p'
+    uint8_t arg_mask = 0;
+    const uint8_t arg_mask_h = 0b001, arg_mask_t = 0b010, arg_mask_p = 0b100;
 
     if (!res)
     {
@@ -116,12 +85,9 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
         goto error;
     }
 
-    if (args->N == 0)
-        arg = default_buf;
-    else
+    if (args->N > 0)
     {
-        buf[0] = '{';
-        if (!args->to(0, arg))
+        if (!args->to(0, &arg))
         {
             strncpy(buf, "Error getting arg 0", buf_size);
             goto error;
@@ -133,13 +99,21 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
         switch (*(arg++))
         {
         case 'h':
+            if (arg_mask & arg_mask_h) continue;
             buf_last += snprintf(buf_last, buf_size-(buf-buf_last), "\"h\":%3.3f", fmod(hum,1000));
+            arg_mask |= arg_mask_h;
             break;
         case 't':
+            if (arg_mask & arg_mask_t) continue;
             buf_last += snprintf(buf_last, buf_size-(buf-buf_last), "\"t\":%3.3f", fmod(temp,1000));
+            arg_mask |= 0b010;
             break;
         case 'p':
+        if (arg_mask & arg_mask_p) continue;
             buf_last += snprintf(buf_last, buf_size-(buf-buf_last), "\"p\":%4.2f", fmod(pres,10000));
+            arg_mask |= 0b100;
+            break;
+        case '\0':
             break;
         default:
             snprintf(buf, buf_size, "Invalid char in arg 0 '%c'", *(arg-1));
@@ -161,21 +135,21 @@ SmartCmd cmd_bme("bme", [](Stream *stream, const SmartCmdArguments *args, const 
             goto error;
         }
     }
-    // stream->println(buf);
-    cmd_success_va_args(stream, cmd, "%s", buf);
+    // cmd_success_va_args(stream, cmd, "%s", buf);
+    CMD_Helper::cmd_success_with_trail(stream, cmd, buf);
     return;
 
     // error
     error:
-    cmd_error(stream, cmd, buf);
+    CMD_Helper::cmd_error(stream, cmd, buf);
 });
 
-void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, bool(HX711_Mult::*hx_read)(uint8_t, uint32_t, float*, float*, uint32_t*, uint32_t), bool raw) {
+void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, hx711_return_code_t(HX711_Mult::*hx_read)(uint8_t, uint32_t, float*, float*, uint32_t*, uint32_t), bool raw) {
     // hx | hx_raw <uint8_t:slot> <uint32_t:n_stat> <uint32_t:timeout_ms>
 
     if (args->N < 2)
     {
-        cmd_error(stream, cmd, "Not enough arguments");
+        CMD_Helper::cmd_error(stream, cmd, "Not enough arguments");
         return;
     }
 
@@ -184,7 +158,7 @@ void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, bool(
     {
         if (!args->to(2, &timeout_ms))
         {
-            cmd_error(stream, cmd, "Couldn't read timeout_ms (arg 2)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't read timeout_ms (arg 2)");
             return;
         }
     }
@@ -193,28 +167,26 @@ void hx_cb(Stream *stream, const SmartCmdArguments *args, const char *cmd, bool(
     uint16_t n_stat;
     if (!args->to(0, &slot) || !args->to(1, &n_stat))
     {
-        cmd_error(stream, cmd, "Not all arguments were ints");
+        CMD_Helper::cmd_error(stream, cmd, "Not all arguments were ints");
         return;
     }
 
-    cmd_received(stream, cmd);
+    if (n_stat > 1)
+        CMD_Helper::cmd_received(stream, cmd);
 
     float mean;
     float stdev;
     uint32_t resulting_n;
     begin_peripherals();
-    bool res = ((hx).*(hx_read))(slot, n_stat, &mean, &stdev, &resulting_n, timeout_ms);
+    hx711_return_code_t res = ((hx).*(hx_read))(slot, n_stat, &mean, &stdev, &resulting_n, timeout_ms);
 
-    if (!res)
+    if (HX711_IS_CODE_ERROR(res))
     {
-        const uint8_t buf_len = 33;
-        char buf[buf_len] = "Error reading hx raw in slot ";
-        snprintf(buf, buf_len-1, "%u", slot%1000);
-        cmd_error(stream, cmd, buf);
+        CMD_Helper::cmd_error_va_args(stream, cmd, "\"slot\":%u\"err_code\":%i", slot%1000, res);
+        return;
     }
 
-    // stream->printf("{\"mean\":%.4f,\"stdev\":%.4f,\"n\":%ul,\"slot\":%u,\"raw\":%s}\n", mean, stdev, resulting_n, slot, raw ? "true" : "false");
-    cmd_success_va_args(stream, cmd, "\"mean\":%.4f,\"stdev\":%.4f,\"n\":%ul,\"slot\":%u,\"raw\":%s", mean, stdev, resulting_n, slot, raw ? "true" : "false");
+    CMD_Helper::cmd_success_va_args(stream, cmd, "\"mean\":%.4f,\"stdev\":%.4f,\"n\":%lu,\"slot\":%u,\"raw\":%s,\"code\":%i,\"code_txt\":\"%s\"", mean, stdev, resulting_n, slot, raw ? "true" : "false", res, hx711_mult_get_code_str(res));
 }
 SmartCmd cmd_hx("hx", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     hx_cb(stream, args, cmd, &HX711_Mult::read_calib_stats, false);
@@ -231,9 +203,9 @@ SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args
     const char *sub_cmd = def_sub_cmd;
     if (args->N > 0)
     {
-        if (!args->to(0, sub_cmd))
+        if (!args->to(0, &sub_cmd))
         {
-            cmd_error(stream, cmd, "Couldn't cast first argument to const char * (sub_cmd)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to const char * (sub_cmd)");
             return;
         }
 
@@ -241,28 +213,28 @@ SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args
         {
             if (!run_data.save())
             {
-                cmd_error(stream, cmd, "Couldn't save run_data");
+                CMD_Helper::cmd_error(stream, cmd, "Couldn't save run_data");
                 return;
             }
         }
         else if (strcmp(sub_cmd, "set") == 0)
         {
             const char *json;
-            if (!args->to(1, json))
+            if (!args->to(1, &json))
             {
-                cmd_error(stream, cmd, "Couldn't cast first argument to const char * (json), or not enough arguments");
+                CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to const char * (json), or not enough arguments");
                 return;
             }
             if (!run_data.set_data(json))
             {
-                cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't set run_data\",\"json\":\"%s\"", json);
+                CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't set run_data\",\"json\":\"%s\"", json);
                 // stream->printf("{\"err\":true,\"cmd\":\"rundata\",\"msg\":\"Couldn't set run_data with json '%s'\"}\n", json);
                 return;
             }
         }
         else
         {
-            cmd_error_va_args(stream, cmd, "\"msg\":\"Unknown subcommand '%s'\"", sub_cmd);
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Unknown subcommand '%s'\"", sub_cmd);
             // stream->printf("{\"err\":true,\"cmd\":\"rundata\",\"msg\":\"Unknown subcommand '%s'\"}\n", sub_cmd);
             return;
         }
@@ -272,11 +244,11 @@ SmartCmd cmd_rundata("rundata", [](Stream *stream, const SmartCmdArguments *args
     JsonObject obj = doc.to<JsonObject>();
     if (!run_data.get_data(&obj))
     {
-        cmd_error(stream, cmd, "Couldn't get run_data because it is not populated");
+        CMD_Helper::cmd_error(stream, cmd, "Couldn't get run_data because it is not populated");
         return;
     }
     obj["sub_cmd"] = sub_cmd;
-    cmd_success(stream, cmd, &doc);
+    CMD_Helper::cmd_success(stream, cmd, &doc);
 });
 
 SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
@@ -286,7 +258,7 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
     // - if literal string "state", it returns a boolean in a json with the key "state" and the value indicating if the main loop is running
     if (args->N < 1)
     {
-        cmd_error(stream, cmd, "Only one argument");
+        CMD_Helper::cmd_error(stream, cmd, "Only one argument");
         return;
     }
 
@@ -299,7 +271,7 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
         {
             // stop
             run_stomasense_loop = false;
-            cmd_success_va_args(stream, cmd, "\"stopped\":true,\"state\":%s", run_stomasense_loop ? "true" : "false");
+            CMD_Helper::cmd_success_va_args(stream, cmd, "\"stopped\":true,\"state\":%s", run_stomasense_loop ? "true" : "false");
             // stream->printf("{\"cmd\":\"run\",\"stopped\":true,\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
             return;
         }
@@ -308,40 +280,40 @@ SmartCmd cmd_run("run", [](Stream *stream, const SmartCmdArguments *args, const 
             // run
             if (!stomasense_setup())
             {
-                cmd_error(stream, cmd, "mainloop setup failed");
+                CMD_Helper::cmd_error(stream, cmd, "mainloop setup failed");
                 return;
             }
             begin_peripherals();
             run_stomasense_loop = true;
-            cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
+            CMD_Helper::cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
             return;
         }
     }
     else
     {
         const char *s;
-        if (!args->to(0, s))
+        if (!args->to(0, &s))
         {
-            cmd_error(stream, cmd, "Couldn't cast first argument to boolean or const char *");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to boolean or const char *");
             return;
         }
 
         if (strcmp(s, "state") == 0)
         {
             // get state
-            cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
+            CMD_Helper::cmd_success_va_args(stream, cmd, "\"state\":%s", run_stomasense_loop ? "true" : "false");
             // stream->printf("{\"cmd\":\"run\",\"state\":%s}\n", run_stomasense_loop ? "true" : "false");
             return;
         }
         else
         {
-            cmd_error_va_args(stream, cmd, "\"msg\":\"unknown sub_cmd '%s'\"", s);
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"unknown sub_cmd '%s'\"", s);
             // stream->printf("{\"err\":true,\"cmd\":\"run\",\"msg\":\"unknown sub_cmd '%s'\"}\n", s);
             return;
         }
     }
 
-    cmd_error(stream, cmd, "This shouldn't be reachable");
+    CMD_Helper::cmd_error(stream, cmd, "This shouldn't be reachable");
 });
 
 SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
@@ -360,16 +332,14 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
 
     if (args->N < 1)
     {
-        cmd_error(stream, cmd, "At least 1 argument needed");
+        CMD_Helper::cmd_error(stream, cmd, "At least 1 argument needed");
         return;
     }
 
-    begin_peripherals();
-
     const char *calib_stage;
-    if (!args->to(0, calib_stage))
+    if (!args->to(0, &calib_stage))
     {
-        cmd_error(stream, cmd, "Couldn't cast first argument to const char * (calib_stage)");
+        CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to const char * (calib_stage)");
         return;
     }
 
@@ -379,9 +349,10 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
     }
     else if (strcmp(calib_stage, "save") == 0)
     {
-        if (!hx.save_calibration())
+        hx711_return_code_t code = hx.save_calibration();
+        if (HX711_IS_CODE_ERROR(code))
         {
-            cmd_error(stream, cmd, "Couldn't save calibration");
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't save calibration\",\"code\":%u\"code_txt\":\"%s\"", code, hx711_mult_get_code_str(code));
             return;
         }
         goto end;
@@ -390,19 +361,19 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
     {
         if (args->N < 2)
         {
-            cmd_error(stream, cmd, "At least 3 arguments needed for setting");
+            CMD_Helper::cmd_error(stream, cmd, "At least 3 arguments needed for setting");
             return;
         }
         const char *json;
-        if (!args->to(1, json))
+        if (!args->to(1, &json))
         {
-            cmd_error(stream, cmd, "Couldn't cast second argument to const char * while setting (json)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast second argument to const char * while setting (json)");
             return;
         }
-        if (!hx.load_calibration(json))
+        hx711_return_code_t code = hx.load_calibration(json);
+        if (HX711_IS_CODE_ERROR(code))
         {
-            cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't load calibration\",\"json\":\"%s\"", json);
-            // stream->printf("{\"err\":true,\"cmd\":\"hx_calib\",\"msg\":\"Couldn't load calibration\",\"json\":\"%s\"}\n", json);
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't load calibration\",\"json\":\"%s\",\"code\":%u\"code_txt\":\"%s\"", json, code, hx711_mult_get_code_str(code));
             return;
         }
         goto end;
@@ -410,19 +381,19 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
 
     if (args->N < 3)
     {
-        cmd_error(stream, cmd, "At least 3 arguments needed if calibrating");
+        CMD_Helper::cmd_error(stream, cmd, "At least 3 arguments needed if calibrating");
         return;
     }
 
     uint8_t slot;
     if (!args->to(1, &slot))
     {
-        cmd_error(stream, cmd, "Couldn't cast second argument to uint8_t (slot)");
+        CMD_Helper::cmd_error(stream, cmd, "Couldn't cast second argument to uint8_t (slot)");
         return;
     }
     if (slot >= N_MULTIPLEXERS)
     {
-        cmd_error_va_args(stream, cmd, "\"msg\":\"Slot can't be %u when there are %u slots\"", slot, N_MULTIPLEXERS);
+        CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Slot can't be %u when there are %u slots\"", slot, N_MULTIPLEXERS);
         // stream->printf("{\"err\":true,\"cmd\":\"hx_calib\",\"msg\":\"Slot can't be %u when there are %u slots\"}\n", slot, N_MULTIPLEXERS);
         return;
     }
@@ -430,7 +401,7 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
     uint32_t n;
     if (!args->to(2, &n))
     {
-        cmd_error(stream, cmd, "Couldn't cast fourth argument to uint32_t (n)");
+        CMD_Helper::cmd_error(stream, cmd, "Couldn't cast fourth argument to uint32_t (n)");
         return;
     }
 
@@ -438,10 +409,12 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
     if (strcmp(calib_stage, "offset") == 0)
     {
         // bool calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
-        cmd_received(stream, cmd);
-        if (!hx.calib_offset(slot, n, &resulting_n))
+        begin_peripherals();
+        CMD_Helper::cmd_received(stream, cmd);
+        hx711_return_code_t code = hx.calib_offset(slot, n, &resulting_n);
+        if (HX711_IS_CODE_ERROR(code))
         {
-            cmd_error(stream, cmd, "Error while calibrating offset");
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Error while calibrating offset\",\"code\":%u\"code_txt\":\"%s\"", code, hx711_mult_get_code_str(code));
             return;
         }
         goto end;
@@ -452,24 +425,26 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
         float weight, weight_error;
         if (!args->to(4, &weight))
         {
-            cmd_error(stream, cmd, "Couldn't cast first argument to float (weight)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to float (weight)");
             return;
         }
         if (!args->to(5, &weight_error))
         {
-            cmd_error(stream, cmd, "Couldn't cast fifth argument to float (weight_error)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast fifth argument to float (weight_error)");
             return;
         }
-        cmd_received(stream, cmd);
-        if (!hx.calib_slope(slot, n, weight, weight_error, &resulting_n))
+        begin_peripherals();
+        CMD_Helper::cmd_received(stream, cmd);
+        hx711_return_code_t code = hx.calib_slope(slot, n, weight, weight_error, &resulting_n);
+        if (HX711_IS_CODE_ERROR(code))
         {
-            cmd_error(stream, cmd, "Error while calibrating slope");
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Error while calibrating slope\",\"code\":%u\"code_txt\":\"%s\"", code, hx711_mult_get_code_str(code));
             return;
         }
     }
     else
     {
-        cmd_error(stream, cmd, "Bad first argument. Should have been 'offset', 'slope', 'save' or 'get'");
+        CMD_Helper::cmd_error(stream, cmd, "Bad first argument. Should have been 'offset', 'slope', 'save' or 'get'");
         return;
     }
 
@@ -490,7 +465,7 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
         }
     }
     obj["sub_cmd"] = calib_stage;
-    cmd_success(stream, cmd, &doc);
+    CMD_Helper::cmd_success(stream, cmd, &doc);
 });
 
 SmartCmd cmd_rtc("rtc", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
@@ -499,21 +474,21 @@ SmartCmd cmd_rtc("rtc", [](Stream *stream, const SmartCmdArguments *args, const 
     const char *rtc_str;
     if (args->N > 0)
     {
-        if (!args->to(0, rtc_str))
+        if (!args->to(0, &rtc_str))
         {
-            cmd_error(stream, cmd, "Couldn't cast first argument to const char * (rtc_str)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to const char * (rtc_str)");
             return;
         }
         if (!RTC::set_datetime(rtc_str))
         {
-            cmd_error_va_args(stream, cmd, "\"msg\":\"Coudln't set datetime for rtc with rtc_str '%s'\"", rtc_str);
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Coudln't set datetime for rtc with rtc_str '%s'\"", rtc_str);
             // stream->printf("{\"err\":true,\"cmd\":\"rtc\",\"msg\":\"Coudln't set datetime for rtc with rtc_str '%s'\"}\n", rtc_str);
             return;
         }
     }
 
     rtc_str = RTC::get_timestamp();
-    cmd_success_va_args(stream, cmd, "\"rtc\",\"rtc_init\":%s,\"rtc_str\":\"%s\"", rtc_str ? "true" : "false", rtc_str);
+    CMD_Helper::cmd_success_va_args(stream, cmd, "\"rtc\",\"rtc_init\":%s,\"rtc_str\":\"%s\"", rtc_str ? "true" : "false", rtc_str);
     // stream->printf("{\"success\":true,\"cmd\":\"rtc\",\"rtc_init\":%s,\"rtc_str\":\"%s\"}\n", rtc_str ? "true" : "false", rtc_str);
 });
 
@@ -532,28 +507,28 @@ SmartCmd cmd_pos("pos", [](Stream *stream, const SmartCmdArguments *args, const 
         stepper_pos_arg = args->to(0, &stepper_pos);
         if (!stepper_pos_arg)
         {
-            cmd_error(stream, cmd, "Couldn't cast first argument to int32_t (stepper_pos)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to int32_t (stepper_pos)");
             return;
         }
     }
     if (args->N > 1)
     {
         servo_angle_arg = args->to(1, &servo_angle);
-        if (servo_angle_arg)
+        if (!servo_angle_arg)
         {
-            cmd_error(stream, cmd, "Couldn't cast second argument to uint8_t (servo_angle)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast second argument to uint8_t (servo_angle)");
             return;
         }
     }
 
     begin_peripherals();
-    cmd_received(stream, cmd);
+    CMD_Helper::cmd_received(stream, cmd);
 
     if (servo_angle_arg)
     {
         if (!servo.set_angle_slow_blocking(servo_angle))
         {
-            cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't set servo to angle %u\"", servo_angle);
+            CMD_Helper::cmd_error_va_args(stream, cmd, "\"msg\":\"Couldn't set servo to angle %u\"", servo_angle);
             // stream->printf("{\"err\":true,\"cmd\":\"pos\",\"msg\":\"Couldn't set servo to angle %u\"}\n", servo_angle);
             return;
         }
@@ -569,7 +544,7 @@ SmartCmd cmd_pos("pos", [](Stream *stream, const SmartCmdArguments *args, const 
         stepper.move_to_pos_blocking(stepper_pos, true);
     }
 
-    cmd_success_va_args(stream, cmd, "\"pos\",\"stepper\":%li,\"servo\":%u", stepper.get_curr_pos(), servo.get_curr_angle());
+    CMD_Helper::cmd_success_va_args(stream, cmd, "\"stepper\":%li,\"servo\":%u", stepper.get_curr_pos(), servo.get_curr_angle());
     // stream->printf("{\"success\":true,\"cmd\":\"pos\",\"stepper\":%li,\"servo\":%u}\n", stepper.get_curr_pos(), servo.get_curr_angle());
 });
 
@@ -581,19 +556,19 @@ SmartCmd cmd_stp_force("stp_force", [](Stream *stream, const SmartCmdArguments *
 
     if (args->N != 1)
     {
-        cmd_error(stream, cmd, "Number of arguments isn't 1. ");
+        CMD_Helper::cmd_error(stream, cmd, "Number of arguments isn't 1. ");
     }
 
     int32_t new_pos;
     if (!args->to(0, &new_pos))
     {
-        cmd_error(stream, cmd, "Couldn't cast first arg to int32_t (new_pos)");
+        CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first arg to int32_t (new_pos)");
         return;
     }
     // set_curr_pos_forced
     stepper.set_curr_pos_forced(new_pos);
 
-    cmd_success_va_args(stream, cmd, "\"stepper\":%li", new_pos);
+    CMD_Helper::cmd_success_va_args(stream, cmd, "\"stepper\":%li", new_pos);
 });
 
 SmartCmd cmd_stp_flag("std_flag", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
@@ -609,14 +584,14 @@ SmartCmd cmd_stp_flag("std_flag", [](Stream *stream, const SmartCmdArguments *ar
         reset_arg = args->to(0, &reset);
         if (!reset_arg)
         {
-            cmd_error(stream, cmd, "Couldn't cast argument 0 to bool (reset)");
+            CMD_Helper::cmd_error(stream, cmd, "Couldn't cast argument 0 to bool (reset)");
             return;
         }
         if (reset)
             stepper.reset_save_state();
     }
 
-    cmd_success_va_args(stream, cmd, "\"state_ok\":%s,\"state_reset\":",
+    CMD_Helper::cmd_success_va_args(stream, cmd, "\"state_ok\":%s,\"state_reset\":",
         save_ok ? "true" : "false",
         reset_arg ? (reset ? "true" : "false") : "false"
     );
@@ -626,7 +601,7 @@ const SmartCmdBase *cmds[] = {
     &cmd_ok, &cmd_bme, &cmd_hx, &cmd_hx_raw, &cmd_run, &cmd_rundata, &cmd_calib, &cmd_rtc, &cmd_pos, &cmd_stp_force, &cmd_stp_flag
 };
 
-SmartComm<ARRAY_LENGTH(cmds)> sc(cmds, Serial);
+SmartComm<ARRAY_LENGTH(cmds)> sc(cmds, Serial, '\n', ' ', cmd_unknown);
 
 void setup() {
     Serial.begin(115200);

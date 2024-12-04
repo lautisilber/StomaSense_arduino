@@ -1,12 +1,16 @@
 #include "bme280_helper.h"
 
-namespace BME_HELPER {
-    void begin(BME280I2C *bme, pin_size_t sda_pin, pin_size_t scl_pin)
+#include "BME280.h"
+
+namespace BME_Helper {
+    void begin(BME280I2C *bme, pin_size_t sda_pin, pin_size_t scl_pin, const BME280I2C::Settings *settings)
     {
         Wire.setSDA(sda_pin);
         Wire.setSCL(scl_pin);
         Wire.begin();
         bme->begin();
+        if (settings)
+            bme->setSettings(*settings);
     }
 
     bool read(BME280I2C *bme, float *hum, float *temp, float *pres)

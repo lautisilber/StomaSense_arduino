@@ -9,7 +9,7 @@ namespace Welfords
     struct Aggregate
     {
         uint32_t count = 0;
-        float mean = 0, M2 = 0;
+        double mean = 0, M2 = 0;
     };
 
     void update(Aggregate *agg, float new_value);

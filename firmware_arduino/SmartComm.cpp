@@ -11,11 +11,11 @@ const char *SmartCmdArguments::arg(_smart_comm_size_t n) const
     return _args[n];
 }
 template <>
-bool SmartCmdArguments::to<const char>(_smart_comm_size_t n, const char *str) const
+bool SmartCmdArguments::to<const char *>(_smart_comm_size_t n, const char **str) const
 {
     const char *temp = arg(n);
     if (temp == NULL) return false;
-    str = temp;
+    *str = temp;
     return true;
 }
 template <>

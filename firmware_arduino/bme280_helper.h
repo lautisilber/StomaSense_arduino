@@ -6,8 +6,13 @@
 #include <Wire.h>
 #include <hardware/sync.h>
 
-namespace BME_HELPER {
-    void begin(BME280I2C *bme, pin_size_t sda_pin, pin_size_t scl_pin);
+namespace BME_Helper {
+    const BME280I2C::Settings default_settings(
+        BME280::OSR_X4,
+        BME280::OSR_X4,
+        BME280::OSR_X4
+    );
+    void begin(BME280I2C *bme, pin_size_t sda_pin, pin_size_t scl_pin, const BME280I2C::Settings *settings=NULL);
     bool read(BME280I2C *bme, float *hum, float *temp, float *pres);
 }
 

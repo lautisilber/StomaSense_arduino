@@ -7,20 +7,20 @@
 
 static const bool multiplexer_configs[N_MULTIPLEXERS][N_MULTIPLEXER_PINS] = {
     {0, 0, 0, 0},
-    {0, 1, 0, 0},
-    {0, 0, 1, 0},
-    {0, 1, 1, 0},
-    {0, 0, 0, 1},
-    {0, 1, 0, 1},
-    {0, 0, 1, 1},
-    {0, 1, 1, 1},
     {1, 0, 0, 0},
+    {0, 1, 0, 0},
     {1, 1, 0, 0},
+    {0, 0, 1, 0},
     {1, 0, 1, 0},
+    {0, 1, 1, 0},
     {1, 1, 1, 0},
+    {0, 0, 0, 1},
     {1, 0, 0, 1},
+    {0, 1, 0, 1},
     {1, 1, 0, 1},
+    {0, 0, 1, 1},
     {1, 0, 1, 1},
+    {0, 1, 1, 1},
     {1, 1, 1, 1}
 };
 
@@ -59,116 +59,116 @@ void HX711_Mult::set_slot(uint8_t slot)
     _set_slot(slot);
 }
 
-bool HX711_Mult::read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms)
+hx711_return_code_t HX711_Mult::read_raw_single(uint8_t slot, int32_t *raw, uint32_t timeout_ms)
 {
     if (!is_slot_valid(slot))
     {
         ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
-        return false;
+        return HX711_ERROR_INVALID_SLOT;
     }
     _set_slot(slot);
-    bool res = _hx.read_raw_single(raw, timeout_ms);
-    if (!res)
+    hx711_return_code_t res = _hx.read_raw_single(raw, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711_Mult::read_raw_single due to error in HX711::read_raw_single");
     }
     return res;
 }
 
-bool HX711_Mult::read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711_Mult::read_raw_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     if (!is_slot_valid(slot))
     {
         ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
-        return false;
+        return HX711_ERROR_INVALID_SLOT;
     }
     _set_slot(slot);
-    bool res = _hx.read_raw_stats(n, mean, stdev, resulting_n, timeout_ms);
-    if (!res)
+    hx711_return_code_t res = _hx.read_raw_stats(n, mean, stdev, resulting_n, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711_Mult::read_raw_stats due to error in HX711::read_raw_stats");
     }
     return res;
 }
 
-bool HX711_Mult::read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711_Mult::read_calib_stats(uint8_t slot, uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     if (!is_slot_valid(slot))
     {
         ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
-        return false;
+        return HX711_ERROR_INVALID_SLOT;
     }
     HX711Calibration *c = &_calibs[slot];
     if (!c->set_offset || !c->set_slope)
     {
         ERROR_PRINTFLN("Cannot call HX711_Mult::read_calib_stats when offset or slope is not set (slot %u)", slot);
-        return false;
+        return HX711_ERROR_CALIBRATION_NOT_SET;
     }
     _set_slot(slot);
-    bool res = _hx.read_calib_stats(n, c, mean, stdev, resulting_n, timeout_ms);
-    if (!res)
+    hx711_return_code_t res = _hx.read_calib_stats(n, c, mean, stdev, resulting_n, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711_Mult::read_calib_stats due to error in HX711::read_calib_stats");
     }
     return res;
 }
 
-bool HX711_Mult::calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711_Mult::calib_offset(uint8_t slot, uint32_t n, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     if (!is_slot_valid(slot))
     {
         ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
-        return false;
+        return HX711_ERROR_INVALID_SLOT;
     }
     _set_slot(slot);
-    bool res = _hx.calib_offset(n, &_calibs[slot], resulting_n, timeout_ms);
-    if (!res)
+    hx711_return_code_t res = _hx.calib_offset(n, &_calibs[slot], resulting_n, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711_Mult::calib_offset due to error in HX711::calib_offset");
     }
     return res;
 }
 
-bool HX711_Mult::calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711_Mult::calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     if (!is_slot_valid(slot))
     {
         ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
-        return false;
+        return HX711_ERROR_INVALID_SLOT;
     }
     _set_slot(slot);
-    bool res = _hx.calib_slope(n, weight, weight_error, &_calibs[slot], resulting_n, timeout_ms);
-    if (!res)
+    hx711_return_code_t res = _hx.calib_slope(n, weight, weight_error, &_calibs[slot], resulting_n, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711_Mult::calib_slope due to error in HX711::calib_slope");
     }
     return res;
 }
 
-bool HX711_Mult::power_down(uint8_t slot, bool wait_until_power_off)
+hx711_return_code_t HX711_Mult::power_down(uint8_t slot, bool wait_until_power_off)
 {
     if (!is_slot_valid(slot))
     {
         ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
-        return false;
+        return HX711_ERROR_INVALID_SLOT;
     }
     _hx.power_off(wait_until_power_off);
-    return true;
+    return HX711_OK;
 }
 
-bool HX711_Mult::power_up(uint8_t slot)
+hx711_return_code_t HX711_Mult::power_up(uint8_t slot)
 {
     if (!is_slot_valid(slot))
     {
         ERROR_PRINTFLN("Slot %u is invalid. Slot should be in range [0,%u]", N_MULTIPLEXERS-1);
-        return false;
+        return HX711_ERROR_INVALID_SLOT;
     }
     _hx.power_on();
-    return true;
+    return HX711_OK;
 }
 
 
-bool HX711_Mult::load_calibration(JsonDocument *doc)
+hx711_return_code_t HX711_Mult::load_calibration(JsonDocument *doc)
 {
     /*
      It takes in a JsonDocument with the following structure
@@ -189,7 +189,7 @@ bool HX711_Mult::load_calibration(JsonDocument *doc)
     if (!arr)
     {
         ERROR_PRINTLN("Couldn't load calibrations: document wasn't a JsonArray");
-        return false;
+        return HX711_ERROR_CALIBRATION_SAVE_FORMAT;
     }
 
     size_t for_len = arr.size();
@@ -203,11 +203,13 @@ bool HX711_Mult::load_calibration(JsonDocument *doc)
     // set_calibs keeps track of which slots have already been assigned a calibration
     memset(_set_calibs, false, N_MULTIPLEXERS * sizeof(bool));
 
+    hx711_return_code_t res = HX711_OK;
     for (size_t i = 0; i < for_len; i++)
     {
         JsonObject obj = arr[i].as<JsonObject>();
         if (!obj)
         {
+            res = HX711_WARN_CALIBRATION_NOT_LOADED;
             WARN_PRINTFLN("The element %lu of the calibration array couldn't be loaded because it wasn't a JsonObject", i);
             continue;
         }
@@ -215,18 +217,21 @@ bool HX711_Mult::load_calibration(JsonDocument *doc)
         // check slot
         if (!obj[HX711_CALIBRATION_JSON_KEY_SLOT].is<uint8_t>())
         {
+            res = HX711_WARN_CALIBRATION_NOT_LOADED;
             WARN_PRINTFLN("The element %lu of the calibration array didn't have the key '%s' for the slot, so it will be skipped", i, HX711_CALIBRATION_JSON_KEY_SLOT);
             continue;
         }
         uint8_t slot = obj[HX711_CALIBRATION_JSON_KEY_SLOT].as<uint8_t>();
         if (_set_calibs[slot])
         {
+            res = HX711_WARN_CALIBRATION_OVERWRITTEN;
             WARN_PRINTFLN("The element %lu of the calibration array has the slot %u, but that slot has already been assigned a calibration. overriding with this calibration",
             i, slot);
         }
 
         if (!_calibs[slot].from_json(&obj))
         {
+            res = HX711_WARN_CALIBRATION_NOT_LOADED;
             WARN_PRINTFLN("Couldn't get calib from json for slot %u", slot);
             continue;
         }
@@ -234,10 +239,10 @@ bool HX711_Mult::load_calibration(JsonDocument *doc)
         _set_calibs[slot] = true;
     }
 
-    return true;
+    return res;
 }
 
-bool HX711_Mult::load_calibration()
+hx711_return_code_t HX711_Mult::load_calibration()
 {
     File file;
 
@@ -245,7 +250,7 @@ bool HX711_Mult::load_calibration()
     {
         SD_Helper::close(&file);
         ERROR_PRINTLN("HX711: Couldn't read file for reading");
-        return false;
+        return HX711_ERROR_CALIBRATION_SAVE_FILE;
     }
 
     JsonDocument doc;
@@ -255,13 +260,13 @@ bool HX711_Mult::load_calibration()
     if (error)
     {
         ERROR_PRINTFLN("Can't load calibrations json: deserialization failed with error: '%s'", error.c_str());
-        return false;
+        return HX711_ERROR_CALIBRATION_DESERIALIZATION;
     }
 
     return load_calibration(&doc);
 }
 
-bool HX711_Mult::load_calibration(const char *json)
+hx711_return_code_t HX711_Mult::load_calibration(const char *json)
 {
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json);
@@ -269,13 +274,13 @@ bool HX711_Mult::load_calibration(const char *json)
     if (error)
     {
         ERROR_PRINTFLN("Can't load calibrations json: deserialization failed with error: '%s'", error.c_str());
-        return false;
+        return HX711_ERROR_CALIBRATION_DESERIALIZATION;
     }
 
     return load_calibration(&doc);
 }
 
-bool HX711_Mult::save_calibration()
+hx711_return_code_t HX711_Mult::save_calibration()
 {
     JsonDocument doc;
     JsonArray arr = doc.to<JsonArray>();
@@ -296,7 +301,7 @@ bool HX711_Mult::save_calibration()
     {
         SD_Helper::close(&file);
         ERROR_PRINTLN("HX711_Mult: Couldn't write file");
-        return false;
+        return HX711_ERROR_CALIBRATION_SAVE_FILE;
     }
 
     size_t min_size = measureJson(arr);
@@ -306,8 +311,23 @@ bool HX711_Mult::save_calibration()
     if (min_size < actual_size)
     {
         ERROR_PRINTFLN("Couldn't save calibrations: written %u bytes when the json was %u bytes long", actual_size, min_size);
-        return false;
+        return HX711_ERROR_CALIBRATION_SAVE_FILE;
     }
 
-    return true;
+    return HX711_OK;
 }
+
+
+const char *hx711_mult_get_code_str(hx711_return_code_t code, bool *known)
+{
+    // bool _known;
+    // const char *res = hx711_mult_get_code_str(&_known);
+
+    // if (!_known)
+    // {
+    //     // add checks for hx711 mult exclusive codes
+    // }
+ 
+    return hx711_get_code_str(code, known);
+}
+

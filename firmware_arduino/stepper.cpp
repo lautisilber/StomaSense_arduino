@@ -32,10 +32,10 @@ static const bool step_half[8][4] = {
 
 static void _make_step_normal(int8_t *curr_step, int32_t *curr_pos, StepperStepDir dir, uint8_t pin_1, uint8_t pin_2, uint8_t pin_3, uint8_t pin_4)
 {
-    const uint8_t last_step = 3;
+    const uint8_t final_step = 3;
     (*curr_step) += dir;
-    if ((*curr_step) < 0) (*curr_step) = last_step;
-    else if ((*curr_step) > last_step) (*curr_step) = 0;
+    if ((*curr_step) < 0) (*curr_step) = final_step;
+    else if ((*curr_step) > final_step) (*curr_step) = 0;
 
     digitalWrite(pin_1, step_normal[(*curr_step)][0]);
     digitalWrite(pin_2, step_normal[(*curr_step)][1]);
@@ -47,10 +47,10 @@ static void _make_step_normal(int8_t *curr_step, int32_t *curr_pos, StepperStepD
 
 static void _make_step_wave(int8_t *curr_step, int32_t *curr_pos, StepperStepDir dir, uint8_t pin_1, uint8_t pin_2, uint8_t pin_3, uint8_t pin_4)
 {
-    const uint8_t last_step = 3;
+    const uint8_t final_step = 3;
     (*curr_step) += dir;
-    if ((*curr_step) < 0) (*curr_step) = last_step;
-    else if ((*curr_step) > last_step) (*curr_step) = 0;
+    if ((*curr_step) < 0) (*curr_step) = final_step;
+    else if ((*curr_step) > final_step) (*curr_step) = 0;
 
     digitalWrite(pin_1, step_wave[(*curr_step)][0]);
     digitalWrite(pin_2, step_wave[(*curr_step)][1]);
@@ -62,10 +62,10 @@ static void _make_step_wave(int8_t *curr_step, int32_t *curr_pos, StepperStepDir
 
 static void _make_step_half(int8_t *curr_step, int32_t *curr_pos, StepperStepDir dir, uint8_t pin_1, uint8_t pin_2, uint8_t pin_3, uint8_t pin_4)
 {
-    const uint8_t last_step = 7;
+    const uint8_t final_step = 7;
     (*curr_step) += dir;
-    if ((*curr_step) < 0) (*curr_step) = last_step;
-    else if ((*curr_step) > last_step) (*curr_step) = 0;
+    if ((*curr_step) < 0) (*curr_step) = final_step;
+    else if ((*curr_step) > final_step) (*curr_step) = 0;
 
     digitalWrite(pin_1, step_half[(*curr_step)][0]);
     digitalWrite(pin_2, step_half[(*curr_step)][1]);
@@ -190,7 +190,11 @@ void Stepper::set_step_type(StepType step_type)
 
 void Stepper::_make_step(StepperStepDir dir)
 {
-    if (!_begin_flag) return;
+    if (!_begin_flag)
+    {
+        WARN_PRINTLN("Trying to move stepper when it wasn't initialized");
+        return;
+    }
     __make_step(&_curr_step, &_curr_pos, dir, _pin_1, _pin_2, _pin_3, _pin_4);
 }
 

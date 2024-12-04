@@ -7,18 +7,19 @@
 
 
 
-bool HX711Calibration::to_json(JsonObject *obj) const
+hx711_return_code_t HX711Calibration::to_json(JsonObject *obj) const
 {
     if (!set_offset)
     {
         ERROR_PRINTLN("Can't create json for calibration: offset data flag is false");
-        return false;
+        return HX711_ERROR_CALIBRATION_NOT_SET;
     }
 
     (*obj)[HX711_CALIBRATION_JSON_KEY_SLOT] = slot;
     (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET] = offset;
     (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR] = offset_e;
 
+    hx711_return_code_t res = HX711_OK;
     if (set_slope)
     {
         (*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE] = slope;
@@ -26,55 +27,60 @@ bool HX711Calibration::to_json(JsonObject *obj) const
     }
     else
     {
+        res = HX711_WARN_CALIBRATION_NO_SLOPE_DATA;
         WARN_PRINTLN("Creating json for calibration without slope data: slope data flag is false");
     }
 
-    return true;
+    return res;
 }
 
-bool HX711Calibration::to_json(char *buf, size_t buf_len) const
+hx711_return_code_t HX711Calibration::to_json(char *buf, size_t buf_len) const
 {
     if (buf_len < HX711_CALIBRATION_JSON_BUF_LEN)
     {
         ERROR_PRINTFLN("Buffer too small. It is %lu but should be at least %lu", buf_len, HX711_CALIBRATION_JSON_BUF_LEN);
-        return false;
+        return HX711_ERROR_CALIBRATION_BUFFER;
     }
     
     // set offset
     if (!set_offset)
     {
         ERROR_PRINTLN("Can't create json for calibration: offset data flag is false");
-        return false;
+        return HX711_ERROR_CALIBRATION_NOT_SET;
     }
     
     JsonDocument doc;
     JsonObject obj = doc.to<JsonObject>();
 
-    if (!to_json(&obj))
+    hx711_return_code_t res = to_json(&obj);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in method to_json(JsonDocument&)");
-        return false;
+        return res;
     }
 
     size_t theoretical_length = measureJson(obj);
     if (theoretical_length > buf_len-1)
     {
         ERROR_PRINTFLN("The theoretical length of the JSON (%lu) is bigger than the buffer length (%lu)", theoretical_length, buf_len);
-        return false;
+        return HX711_ERROR_CALIBRATION_BUFFER;
     }
     size_t actual_length = serializeJson(obj, buf, buf_len);
-    bool res = actual_length >= theoretical_length;
-    if (!res)
+    bool valid_length = actual_length >= theoretical_length;
+    if (!valid_length)
+    {
         ERROR_PRINTFLN("The number of bytes written (%lu) is smaller than the theoretical length of the stringified JSON (%lu)", actual_length, theoretical_length);
+        return HX711_ERROR_CALIBRATION_SERIALIZATION;
+    }
     return res;
 }
 
-bool HX711Calibration::from_json(JsonObject *obj)
+hx711_return_code_t HX711Calibration::from_json(JsonObject *obj)
 {
     if (!obj)
     {
         ERROR_PRINTLN("Can't load calibration json: obj is not a JsonObject");
-        return false;
+        return HX711_ERROR_CALIBRATION_SAVE_FORMAT;
     }
 
     // check offset keys exist and are of right type
@@ -83,7 +89,7 @@ bool HX711Calibration::from_json(JsonObject *obj)
         !(*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR].is<float>())
     {
         ERROR_PRINTFLN("Can't load calibration json: slot is not uint8_t ('%s') or offset keys ('%s' and '%s') aren't floats", HX711_CALIBRATION_JSON_KEY_SLOT, HX711_CALIBRATION_JSON_KEY_OFFSET, HX711_CALIBRATION_JSON_KEY_OFFSET_ERROR);
-        return false;
+        return HX711_ERROR_CALIBRATION_SAVE_FORMAT;
     }
     slot = (*obj)[HX711_CALIBRATION_JSON_KEY_SLOT].as<uint8_t>();
     offset = (*obj)[HX711_CALIBRATION_JSON_KEY_OFFSET].as<float>();
@@ -100,15 +106,17 @@ bool HX711Calibration::from_json(JsonObject *obj)
         set_slope = true;
     }
 
+    hx711_return_code_t res = HX711_OK;
     if (!set_slope)
     {
+        res = HX711_WARN_CALIBRATION_NO_SLOPE_DATA;
         WARN_PRINTLN("Couldn't load slope data for calibration");
     }
 
-    return true;
+    return res;
 }
 
-bool HX711Calibration::from_json(char *buf, size_t buf_len)
+hx711_return_code_t HX711Calibration::from_json(char *buf, size_t buf_len)
 {
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, buf, buf_len-1);
@@ -116,7 +124,7 @@ bool HX711Calibration::from_json(char *buf, size_t buf_len)
 
     if (error) {
         ERROR_PRINTFLN("Can't load calibration json: deserialization failed with error: '%s'\nThe original content was '%s'", error.c_str(), buf);
-        return false;
+        return HX711_ERROR_CALIBRATION_DESERIALIZATION;
     }
 
     // check it's an object and cast it
@@ -127,15 +135,6 @@ bool HX711Calibration::from_json(char *buf, size_t buf_len)
 bool HX711Calibration::populated() const
 {
     return set_offset || set_slope;
-}
-
-inline void HX711::pulse()
-{
-    // pulse
-    digitalWrite(_pin_sck, HIGH);
-    sleep_us(HX711_PULSE_DELAY_US);
-    digitalWrite(_pin_sck, LOW);
-    sleep_us(HX711_PULSE_DELAY_US);
 }
 
 HX711::HX711(pin_size_t pin_sck, pin_size_t pin_dout, HX711Gain gain)
@@ -179,10 +178,9 @@ bool HX711::wait_ready_timeout(unsigned long timeout_ms)
     return false;
 }
 
-bool HX711::read_raw_single(int32_t *raw, uint32_t timeout_ms)
+hx711_return_code_t HX711::read_raw_single(int32_t *raw, uint32_t timeout_ms)
 {
-    uint32_t ints;
-    uint8_t i, j, data[3] = {0}, filler;
+    uint32_t ints, data = 0;
 
     // send ready request
     power_on();
@@ -192,47 +190,50 @@ bool HX711::read_raw_single(int32_t *raw, uint32_t timeout_ms)
         if (!wait_ready_timeout(timeout_ms))
         {
             ERROR_PRINTLN("Timeout error in HX711::read_raw_single");
-            return false;
+            return HX711_ERROR_TIMEOUT;
         }
     else
         wait_ready();
 
+    ints = save_and_disable_interrupts();
     // read
-    for (i = 0; i < 3; i++)
+    for (uint8_t i = 0; i < 24; i++)
     {
-        for (j = 0; i < 8; i++)
-        {
-            ints = save_and_disable_interrupts(); 
-            pulse();
-            restore_interrupts(ints);
+        //pusle high
+        digitalWrite(_pin_sck, HIGH);
+        sleep_us(HX711_PULSE_DELAY_US);
 
-            // shift
-            data[i] |= digitalRead(_pin_dout) << (7 - j);
-        }
+        // shift
+        data = (data << 1) + digitalRead(_pin_dout);
+
+        // pulse low
+        digitalWrite(_pin_sck, LOW);
+        sleep_us(HX711_PULSE_DELAY_US);
     }
 
     // set correct gain
-    ints = save_and_disable_interrupts(); 
-    for (i = 0; i < _gain; i++)
+    for (uint8_t i = 0; i < _gain; i++)
     {
-        pulse();
+        digitalWrite(_pin_sck, HIGH);
+        sleep_us(HX711_PULSE_DELAY_US);
+        digitalWrite(_pin_sck, LOW);
+        sleep_us(HX711_PULSE_DELAY_US);
     }
     restore_interrupts(ints);
 
-    // to twos complement
-    if (data[2] & 0x80)
-        filler = 0xFF;
-    else
-        filler = 0x00;
+    // to two's compliment
+    // if the 3rd byte & 0x80 == true, then
+    // the fourth byte should be |= 0xFF
+    if (data >> 16 & 0x80)
+    {
+        data |= 0xFF << 24;
+    }
 
-    (*raw) = static_cast<int32_t>(static_cast<uint32_t>(filler) << 24 |
-             static_cast<uint32_t>(data[2]) << 16 |
-             static_cast<uint32_t>(data[1]) << 8 |
-             static_cast<uint32_t>(data[0]));
-    return true;
+    *raw = static_cast<int32_t>(data);
+    return HX711_OK;
 }
 
-bool HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     int32_t raw;
     if (n == 0)
@@ -242,77 +243,82 @@ bool HX711::read_raw_stats(uint32_t n, float *mean, float *stdev, uint32_t *resu
     }
     else if (n == 1)
     {
-        if (!read_raw_single(&raw, timeout_ms))
+        hx711_return_code_t res = read_raw_single(&raw, timeout_ms);
+        if (HX711_IS_CODE_ERROR(res))
         {
             ERROR_PRINTLN("Error in HX711::read_raw_stats due to error in HX711::read_raw_single");
-            return false;
+            return res;
         }
         (*mean) = static_cast<float>(raw);
         (*stdev) = -1.0;
         WARN_PRINTLN("Using read_raw_stats with n = 1. Use read_raw_single instead");
-        return true;
+        return HX711_WARN_STATS_WITH_ONE_SAMPLE;
     }
 
     Welfords::Aggregate agg;
     float temp_mean, temp_stdev;
     for (uint32_t i = 0; i < n; i++)
     {
-        if (!read_raw_single(&raw, timeout_ms)) continue;
-        Welfords::update(&agg, static_cast<float>(raw));
+        if (!HX711_IS_CODE_ERROR(read_raw_single(&raw, timeout_ms)))
+            Welfords::update(&agg, static_cast<float>(raw));
     }
 
     if (!Welfords::finalize(&agg, mean, stdev))
     {
         ERROR_PRINTFLN("Couldn't finalize welford's algorithm because there weren't enough samples (%lu)", agg.count);
-        return false;
+        return HX711_ERROR_INSUFFICIENT_SAMPLES_FOR_STATS;
     }
     (*resulting_n) = agg.count;
-    return true;
+    return HX711_OK;
 }
 
-bool HX711::read_calib_stats(uint32_t n, HX711Calibration *calib, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711::read_calib_stats(uint32_t n, HX711Calibration *calib, float *mean, float *stdev, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms))
+    hx711_return_code_t res = read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711::read_calib_stats due to error in HX711::read_raw_stats");
-        return false;
+        return res;
     }
 
     (*mean) = calib->slope * raw_mean + calib->offset;
     (*stdev) = sqrt( sq(calib->offset_e) + sq(calib->slope_e)*sq(raw_mean) + sq(calib->slope)*sq(raw_stdev) );
 
-    return true;
+    return res;
 }
 
-bool HX711::calib_offset(uint32_t n, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711::calib_offset(uint32_t n, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms))
+    hx711_return_code_t res = read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711::calib_offset due to error in HX711::read_raw_stats");
-        return false;
+        return res;
     }
 
     calib->offset = raw_mean;
     calib->offset_e = raw_stdev;
     calib->set_offset = true;
 
-    return true;
+    return res;
 }
 
-bool HX711::calib_slope(uint32_t n, float weight, float weight_error, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
+hx711_return_code_t HX711::calib_slope(uint32_t n, float weight, float weight_error, HX711Calibration *calib, uint32_t *resulting_n, uint32_t timeout_ms)
 {
     if (!calib->set_offset)
     {
         ERROR_PRINTLN("Cannot calibrate slope when offset is not set");
-        return false;
+        return HX711_ERROR_CALIBRATION_NOT_SET;
     }
+
     float raw_mean, raw_stdev;
-    if (!read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms))
+    hx711_return_code_t res = read_raw_stats(n, &raw_mean, &raw_stdev, resulting_n, timeout_ms);
+    if (HX711_IS_CODE_ERROR(res))
     {
         ERROR_PRINTLN("Error in HX711::calib_offset due to error in HX711::read_raw_stats");
-        return false;
+        return res;
     }
 
     calib->slope = (weight - calib->offset) / raw_mean;
@@ -323,7 +329,7 @@ bool HX711::calib_slope(uint32_t n, float weight, float weight_error, HX711Calib
     calib->slope_e = sqrt( (sq(calib->offset_e) + sq(weight_error)) / raw_mean2 + sq(weight - calib->offset) * abs(temp) );
     calib->set_slope = true;
 
-    return true;
+    return res;
 }
 
 void HX711::power_off(bool wait_until_power_off)
@@ -337,4 +343,72 @@ void HX711::power_off(bool wait_until_power_off)
 void HX711::power_on()
 {
     digitalWrite(_pin_sck, LOW);
+}
+
+static const char *hx711_code_str[] = {
+    "OK",
+    
+    "Error",
+    "Error: Invalid slot",
+    "Error: Calibration not set",
+    "Error: Calibration save format",
+    "Error: Calibration deserialization",
+    "Error: Calibration save file",
+    "Error: Calibration serialization",
+    "Error: Calibration buffer",
+    "Error: Timeout",
+    "Error: Insufficient samples for stats",
+
+    "Warning: Calibration overwritten",
+    "Warning: Calibration no slope data",
+    "Warning: Doing stats with one sample",
+    "Warning: Calibration not loaded",
+
+    "Unknown code"
+};
+
+const char *hx711_get_code_str(hx711_return_code_t code, bool *known)
+{
+    if (known)
+        *known = true;
+    switch(code)
+    {
+    case HX711_OK:
+        return hx711_code_str[0];
+
+    case HX711_ERROR:
+        return hx711_code_str[1];
+    case HX711_ERROR_INVALID_SLOT:
+        return hx711_code_str[2];
+    case HX711_ERROR_CALIBRATION_NOT_SET:
+        return hx711_code_str[3];
+    case HX711_ERROR_CALIBRATION_SAVE_FORMAT:
+        return hx711_code_str[4];
+    case HX711_ERROR_CALIBRATION_DESERIALIZATION:
+        return hx711_code_str[5];
+    case HX711_ERROR_CALIBRATION_SAVE_FILE:
+        return hx711_code_str[6];
+    case HX711_ERROR_CALIBRATION_SERIALIZATION:
+        return hx711_code_str[7];
+    case HX711_ERROR_CALIBRATION_BUFFER:
+        return hx711_code_str[8];
+    case HX711_ERROR_TIMEOUT:
+        return hx711_code_str[9];
+    case HX711_ERROR_INSUFFICIENT_SAMPLES_FOR_STATS:
+        return hx711_code_str[10];
+
+    case HX711_WARN_CALIBRATION_OVERWRITTEN:
+        return hx711_code_str[11];
+    case HX711_WARN_CALIBRATION_NO_SLOPE_DATA:
+        return hx711_code_str[12];
+    case HX711_WARN_STATS_WITH_ONE_SAMPLE:
+        return hx711_code_str[13];
+    case HX711_WARN_CALIBRATION_NOT_LOADED:
+        return hx711_code_str[14];
+
+    default:
+        if (known)
+            *known = false;
+        return hx711_code_str[15];
+    }
 }
