@@ -24,12 +24,12 @@ extern "C" {
 #endif
 
 #if (defined(D_DEBUG) || defined(D_INFO) || defined(D_WARN) || defined(D_ERROR) || defined(D_CRITICAL))
-#define _D_PRINTF_HELPER(prefix, ...) do { printf("%s - %u | %s: ", __FILENAME__, __LINE__, prefix); printf(__VA_ARGS__); } while(0)
+#define _D_PRINTF_HELPER(prefix, ...) do { Serial.printf("%s - %u | %s: ", __FILENAME__, __LINE__, prefix); Serial.printf(__VA_ARGS__); } while(0)
 #endif
 
 #ifdef D_DEBUG
 #define DEBUG_PRINTF(...) _D_PRINTF_HELPER("DEBUG", __VA_ARGS__)
-#define DEBUG_PRINTFLN(...) do { DEBUG_PRINTF( __VA_ARGS__); puts("\n"); } while(0)
+#define DEBUG_PRINTFLN(...) do { DEBUG_PRINTF( __VA_ARGS__); Serial.println(); } while(0)
 #else
 #define DEBUG_PRINTF(...)
 #define DEBUG_PRINTFLN(...)
@@ -39,7 +39,7 @@ extern "C" {
 
 #ifdef D_INFO
 #define INFO_PRINTF(...) _D_PRINTF_HELPER("INFO", __VA_ARGS__)
-#define INFO_PRINTFLN(...) do { INFO_PRINTF( __VA_ARGS__); puts("\n"); } while(0)
+#define INFO_PRINTFLN(...) do { INFO_PRINTF( __VA_ARGS__); Serial.println(); } while(0)
 #else
 #define INFO_PRINTF(...)
 #define INFO_PRINTFLN(...)
@@ -49,7 +49,7 @@ extern "C" {
 
 #ifdef D_WARN
 #define WARN_PRINTF(...) _D_PRINTF_HELPER("WARN", __VA_ARGS__)
-#define WARN_PRINTFLN(...) do { WARN_PRINTF( __VA_ARGS__); puts("\n"); } while(0)
+#define WARN_PRINTFLN(...) do { WARN_PRINTF( __VA_ARGS__); Serial.println(); } while(0)
 #else
 #define WARN_PRINTF(...)
 #define WARN_PRINTFLN(...)
@@ -59,7 +59,7 @@ extern "C" {
 
 #ifdef D_ERROR
 #define ERROR_PRINTF(...) _D_PRINTF_HELPER("ERROR", __VA_ARGS__)
-#define ERROR_PRINTFLN(...) do { ERROR_PRINTF( __VA_ARGS__); puts("\n"); } while(0)
+#define ERROR_PRINTFLN(...) do { ERROR_PRINTF( __VA_ARGS__); Serial.println(); } while(0)
 #else
 #define ERROR_PRINTF(...)
 #define ERROR_PRINTFLN(...)
@@ -69,7 +69,7 @@ extern "C" {
 
 #ifdef D_CRITICAL
 #define CRITICAL_PRINTF(...) _D_PRINTF_HELPER("CRITICAL", __VA_ARGS__)
-#define CRITICAL_PRINTFLN(...) do { CRITICAL_PRINTF( __VA_ARGS__); puts("\n"); } while(0)
+#define CRITICAL_PRINTFLN(...) do { CRITICAL_PRINTF( __VA_ARGS__); Serial.println(); } while(0)
 #else
 #define CRITICAL_PRINTF(...)
 #define CRITICAL_PRINTFLN(...)

@@ -18,18 +18,24 @@
 BME280I2C bme(BME_Helper::default_settings);
 HX711_Mult hx(HX711_MULT_1, HX711_MULT_2, HX711_MULT_3, HX711_MULT_4, HX711_SCK, HX711_DT);
 ServoRPI servo(SERVO_PIN, true);
-StepperAsync stepper(STEPPER_PIN_1, STEPPER_PIN_2, STEPPER_PIN_3, STEPPER_PIN_4, Stepper::StepType::HALF);
+StepperAsync stepper(STEPPER_PIN_1, STEPPER_PIN_2, STEPPER_PIN_3, STEPPER_PIN_4);
 Pump pump(PUMP_PIN);
 
 bool init_peripherals_flag = false;
 void begin_peripherals()
 {
     if (init_peripherals_flag) return;
+
+    bool error = false;
+
     BME_Helper::begin(&bme, BME280_SDA_PIN, BME280_SCL_PIN);
     hx.begin();
-    stepper.begin();
+    error |= !stepper.begin();
     RTC::begin();
-    init_peripherals_flag = true;
+
+    if (error)
+        WARN_PRINTLN("Couldn't initialize all peripherals");
+    init_peripherals_flag = !error;
 }
 
 /// Run data //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -522,7 +528,9 @@ SmartCmd cmd_pos("pos", [](Stream *stream, const SmartCmdArguments *args, const 
     }
 
     begin_peripherals();
-    CMD_Helper::cmd_received(stream, cmd);
+
+    if (servo_angle_arg || stepper_pos_arg)
+        CMD_Helper::cmd_received(stream, cmd);
 
     if (servo_angle_arg)
     {
@@ -550,7 +558,7 @@ SmartCmd cmd_pos("pos", [](Stream *stream, const SmartCmdArguments *args, const 
 
 SmartCmd cmd_stp_force("stp_force", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     // returns stepper pos at the end of the command
-    // if a argument is provided (int32_t), the stepper pos will be updated to this new value, without actually moving
+    // the second argument (int32_t), the stepper pos will be updated to this new value, without actually moving
     // moving the stepper
 
 
@@ -577,7 +585,7 @@ SmartCmd cmd_stp_flag("std_flag", [](Stream *stream, const SmartCmdArguments *ar
 
     bool save_ok = stepper.is_save_state_ok();
     bool reset_arg = false;
-    bool reset;
+    bool reset = false;
 
     if (args->N > 0)
     {
@@ -591,14 +599,26 @@ SmartCmd cmd_stp_flag("std_flag", [](Stream *stream, const SmartCmdArguments *ar
             stepper.reset_save_state();
     }
 
-    CMD_Helper::cmd_success_va_args(stream, cmd, "\"state_ok\":%s,\"state_reset\":",
+    CMD_Helper::cmd_success_va_args(stream, cmd, "\"state_ok\":%s,\"state_reset\":%s",
         save_ok ? "true" : "false",
-        reset_arg ? (reset ? "true" : "false") : "false"
+        reset ? "true" : "false"
     );
 });
 
+SmartCmd cmd_init_periphs("init_periphs", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+    begin_peripherals();
+    CMD_Helper::cmd_success(stream, cmd);
+});
+
+SmartCmd cmd_reboot("reboot", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+    CMD_Helper::cmd_success(stream, cmd);
+    delay(1000);
+    rp2040.reboot();
+});
+
+
 const SmartCmdBase *cmds[] = {
-    &cmd_ok, &cmd_bme, &cmd_hx, &cmd_hx_raw, &cmd_run, &cmd_rundata, &cmd_calib, &cmd_rtc, &cmd_pos, &cmd_stp_force, &cmd_stp_flag
+    &cmd_ok, &cmd_bme, &cmd_hx, &cmd_hx_raw, &cmd_run, &cmd_rundata, &cmd_calib, &cmd_rtc, &cmd_pos, &cmd_stp_force, &cmd_stp_flag, &cmd_init_periphs, &cmd_reboot
 };
 
 SmartComm<ARRAY_LENGTH(cmds)> sc(cmds, Serial, '\n', ' ', cmd_unknown);
