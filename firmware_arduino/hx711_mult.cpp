@@ -229,7 +229,8 @@ hx711_return_code_t HX711_Mult::load_calibration(JsonDocument *doc)
             i, slot);
         }
 
-        if (!_calibs[slot].from_json(&obj))
+        res = _calibs[slot].from_json(&obj);
+        if (HX711_IS_CODE_ERROR(res))
         {
             res = HX711_WARN_CALIBRATION_NOT_LOADED;
             WARN_PRINTFLN("Couldn't get calib from json for slot %u", slot);

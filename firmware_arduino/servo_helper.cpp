@@ -91,62 +91,63 @@ bool ServoRPI::set_angle_slow_blocking(float angle)
 
 
 
-#include "RPi_Pico_TimerInterrupt.h"
+// #include "RPi_Pico_TimerInterrupt.h"
 
-// RPI_PICO_Timer ITimer1(__COUNTER__);
-static RPI_PICO_Timer servoTimer(2);
+// // RPI_PICO_Timer ITimer1(__COUNTER__);
+// static RPI_PICO_Timer servoTimer(2);
+// #include "timers.h" // use timer3
 
-struct ServoTimerData
-{
-    float curr_step, final_step, step;
-    ServoRPI *servo;
-    volatile bool running = false;
-};
-static ServoTimerData _servo_timer_data;
+// struct ServoTimerData
+// {
+//     float curr_step, final_step, step;
+//     ServoRPI *servo;
+//     volatile bool running = false;
+// };
+// static ServoTimerData _servo_timer_data;
 
-static bool servo_timer_handler(struct repeating_timer *t)
-{
-    // false doesn't repeat, true repeats.
+// static bool servo_timer_handler(struct repeating_timer *t)
+// {
+//     // false doesn't repeat, true repeats.
     
-    _servo_timer_data.curr_step += _servo_timer_data.step;
-    _servo_timer_data.servo->set_angle(_servo_timer_data.curr_step);
+//     _servo_timer_data.curr_step += _servo_timer_data.step;
+//     _servo_timer_data.servo->set_angle(_servo_timer_data.curr_step);
     
-    bool repeat = !__is_set_angle_slow_finished(_servo_timer_data.final_step, _servo_timer_data.curr_step, _servo_timer_data.step);
-    if (!repeat)
-    {
-        _servo_timer_data.servo->set_angle(_servo_timer_data.final_step);
-    }
-    _servo_timer_data.running = repeat;
-    return repeat;
-}
+//     bool repeat = !__is_set_angle_slow_finished(_servo_timer_data.final_step, _servo_timer_data.curr_step, _servo_timer_data.step);
+//     if (!repeat)
+//     {
+//         _servo_timer_data.servo->set_angle(_servo_timer_data.final_step);
+//     }
+//     _servo_timer_data.running = repeat;
+//     return repeat;
+// }
 
-bool ServoRPIAsync::running() const
-{
-    return _servo_timer_data.running;
-}
+// bool ServoRPIAsync::running() const
+// {
+//     return _servo_timer_data.running;
+// }
 
-bool ServoRPIAsync::set_angle_slow_async(float angle, uint32_t n_steps, uint32_t delay_us)
-{
-    if (n_steps == 0 || angle == _curr_angle) return true;
-    if (delay_us == 0)
-    {
-        _servo_timer_data.running = true;
-        bool res = set_angle_slow_blocking(angle, n_steps, 0);
-        _servo_timer_data.running = false;
-        return res;
-    }
+// bool ServoRPIAsync::set_angle_slow_async(float angle, uint32_t n_steps, uint32_t delay_us)
+// {
+//     if (n_steps == 0 || angle == _curr_angle) return true;
+//     if (delay_us == 0)
+//     {
+//         _servo_timer_data.running = true;
+//         bool res = set_angle_slow_blocking(angle, n_steps, 0);
+//         _servo_timer_data.running = false;
+//         return res;
+//     }
 
-    if (running())
-    {
-        WARN_PRINTLN("ServoRPIAsync: Can't start new set_angle operation because one is already running");
-        return false;
-    }
+//     if (running())
+//     {
+//         WARN_PRINTLN("ServoRPIAsync: Can't start new set_angle operation because one is already running");
+//         return false;
+//     }
 
-    _servo_timer_data.step = __get_step(angle, _curr_angle, n_steps);
-    _servo_timer_data.curr_step = _curr_angle;
-    _servo_timer_data.final_step = angle;
-    _servo_timer_data.servo = this;
-    _servo_timer_data.running = servoTimer.attachInterruptInterval(delay_us, servo_timer_handler);
+//     _servo_timer_data.step = __get_step(angle, _curr_angle, n_steps);
+//     _servo_timer_data.curr_step = _curr_angle;
+//     _servo_timer_data.final_step = angle;
+//     _servo_timer_data.servo = this;
+//     _servo_timer_data.running = timer3.attachInterruptInterval(delay_us, servo_timer_handler);
     
-    return running();
-}
+//     return running();
+// }

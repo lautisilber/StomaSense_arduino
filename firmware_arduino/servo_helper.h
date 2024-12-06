@@ -33,9 +33,9 @@ public:
 };
 
 
-class ServoRPIAsync : public ServoRPI
-{
-public:
-    bool running() const;
-    bool set_angle_slow_async(float angle, uint32_t n_steps, uint32_t delay_us);
-};
+// class ServoRPIAsync : public ServoRPI
+// {
+// public:
+//     bool running() const;
+//     bool set_angle_slow_async(float angle, uint32_t n_steps, uint32_t delay_us);
+// };

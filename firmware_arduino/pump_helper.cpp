@@ -31,10 +31,11 @@ void Pump::pump_blocking(float intensity, uint32_t time_us)
 
 
 
-#include "RPi_Pico_TimerInterrupt.h"
+// #include "RPi_Pico_TimerInterrupt.h"
 
-// RPI_PICO_Timer ITimer1(__COUNTER__);
-static RPI_PICO_Timer pumpTimer(3);
+// // RPI_PICO_Timer ITimer1(__COUNTER__);
+// static RPI_PICO_Timer pumpTimer(3);
+#include "timers.h" // use timer 2
 
 struct PumpTimerData
 {
@@ -65,6 +66,6 @@ bool PumpAsync::pump_async(float intensity, uint32_t time_us)
         return false;
     }
     _pump_timer_data.pump = this;
-    _pump_timer_data.running = pumpTimer.attachInterruptInterval(time_us, pump_timer_handler);
+    _pump_timer_data.running = timer2.attachInterruptInterval(time_us, pump_timer_handler);
     return _pump_timer_data.running;
 }

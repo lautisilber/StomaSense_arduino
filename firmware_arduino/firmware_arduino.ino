@@ -12,6 +12,7 @@
 #include "eeprom_helper.h"
 #include "SmartSortArray.h"
 #include "PicoVector.h"
+#include "led_blink_async.h"
 #include "cmd_helper.h"
 
 /// Sensor handler classes ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -59,6 +60,7 @@ void cmd_unknown(Stream *stream, const char *cmd)
     CMD_Helper::cmd_error_with_trail(stream, cmd, "\"unknown\":true");
 }
 SmartCmd cmd_ok("OK", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+    led_blink_async(LED_PIN, 500, false);
     CMD_Helper::cmd_success(stream, cmd);
 });
 
@@ -367,7 +369,7 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
     {
         if (args->N < 2)
         {
-            CMD_Helper::cmd_error(stream, cmd, "At least 3 arguments needed for setting");
+            CMD_Helper::cmd_error(stream, cmd, "At least 2 arguments needed for setting");
             return;
         }
         const char *json;
@@ -429,12 +431,12 @@ SmartCmd cmd_calib("hx_calib", [](Stream *stream, const SmartCmdArguments *args,
     {
         // bool calib_slope(uint8_t slot, uint32_t n, float weight, float weight_error, uint32_t *resulting_n, uint32_t timeout_ms=HX711_DEFAULT_TIMEOUT_MS);
         float weight, weight_error;
-        if (!args->to(4, &weight))
+        if (!args->to(3, &weight))
         {
             CMD_Helper::cmd_error(stream, cmd, "Couldn't cast first argument to float (weight)");
             return;
         }
-        if (!args->to(5, &weight_error))
+        if (!args->to(4, &weight_error))
         {
             CMD_Helper::cmd_error(stream, cmd, "Couldn't cast fifth argument to float (weight_error)");
             return;
@@ -579,7 +581,7 @@ SmartCmd cmd_stp_force("stp_force", [](Stream *stream, const SmartCmdArguments *
     CMD_Helper::cmd_success_va_args(stream, cmd, "\"stepper\":%li", new_pos);
 });
 
-SmartCmd cmd_stp_flag("std_flag", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
+SmartCmd cmd_stp_flag("stp_flag", [](Stream *stream, const SmartCmdArguments *args, const char *cmd) {
     // this command should be used to either read if the moving flag was left set, and eventually reset it
     // to reset, state first argument as boolean true
 
@@ -626,6 +628,8 @@ SmartComm<ARRAY_LENGTH(cmds)> sc(cmds, Serial, '\n', ' ', cmd_unknown);
 void setup() {
     Serial.begin(115200);
     Serial.println("StomaSense v1.0.0");
+
+    pinMode(LED_PIN, OUTPUT);
 }
 
 

@@ -98,8 +98,8 @@ hx711_return_code_t HX711Calibration::from_json(JsonObject *obj)
 
     // check offset keys exist and are of right type
     set_slope = false;
-    if (!(*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE].is<float>() ||
-        !(*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE_ERROR].is<float>())
+    if ((*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE].is<float>() &&
+        (*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE_ERROR].is<float>())
     {
         slope = (*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE].as<float>();
         slope_e = (*obj)[HX711_CALIBRATION_JSON_KEY_SLOPE_ERROR].as<float>();

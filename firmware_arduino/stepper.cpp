@@ -154,10 +154,11 @@ void Stepper::reset_save_state() {
 
 // async
 
-#include "RPi_Pico_TimerInterrupt.h"
+// #include "RPi_Pico_TimerInterrupt.h"
 
-// RPI_PICO_Timer ITimer1(__COUNTER__);
-static RPI_PICO_Timer stepperTimer(1);
+// // RPI_PICO_Timer ITimer1(__COUNTER__);
+// static RPI_PICO_Timer stepperTimer(1);
+#include "timers.h" // use timer1
 
 struct StepperTimerData {
     int32_t curr_step, final_step;
@@ -168,7 +169,8 @@ struct StepperTimerData {
 };
 static StepperTimerData _stepper_timer_data;
 
-static bool stepper_timer_handler(struct repeating_timer *t) {
+static bool stepper_timer_handler(struct repeating_timer *t)
+{
     // false doesn't repeat, true repeats.
 
     int32_t curr_pos = _stepper_timer_data.stepper->_make_step(_stepper_timer_data.step_dir);
@@ -212,7 +214,7 @@ bool StepperAsync::move_steps_async(int32_t steps, bool release) {
     _stepper_timer_data.release = release;
 
     write_stepper_save_state(true, _curr_step, __LINE__);
-    _stepper_timer_data.running = stepperTimer.attachInterruptInterval(STEPPER_STEP_DELAY_US, stepper_timer_handler);
+    _stepper_timer_data.running = timer1.attachInterruptInterval(STEPPER_STEP_DELAY_US, stepper_timer_handler);
 
     return running();
 }
